@@ -1,0 +1,13 @@
+{
+    "name": "etf-portfolio-analyzer",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "format": "prettier . --write"
+    },
+    "author": "",
+    "license": "ISC",
+    "devDependencies": {
+        "prettier": "^3.3.3"
+    }
+}
