@@ -211,10 +211,10 @@
     "@jridgewell/resolve-uri" "^3.1.0"
     "@jridgewell/sourcemap-codec" "^1.4.14"
 
-"@lucide/svelte@^0.501.0":
-  version "0.501.0"
-  resolved "https://registry.yarnpkg.com/@lucide/svelte/-/svelte-0.501.0.tgz#5d85542168529bfe1af81e1960918e23c5b78eab"
-  integrity sha512-W3YWDyANY+Gi1wzf4JKK5bRYGqRQFAIDbNmMR1ujZ/TR+/jT+8rj9txn5XEuxygYn0ioEw5EcaVewDWSUOU/bg==
+"@lucide/svelte@^0.503.0":
+  version "0.503.0"
+  resolved "https://registry.yarnpkg.com/@lucide/svelte/-/svelte-0.503.0.tgz#c3cd1c06e4db83a8c5e812217f26f51b711eef4d"
+  integrity sha512-Y7Q8pHnX2YG8Ef4a/VnYFN9tTAJS33MiS78vQtPiyp5iiWuBlTMoViMiRUxQb7U9Ro46RdJ0kpCADvvha3Z2rA==
 
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
