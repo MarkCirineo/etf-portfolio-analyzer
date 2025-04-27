@@ -19,18 +19,20 @@
 	let { value = $bindable(), class: className, ...restProps }: Props = $props();
 </script>
 
-<Search
-	class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform cursor-text text-gray-400"
-	tabindex={0}
-	onclick={focusInput}
-/>
-<Input
-	type="text"
-	bind:value
-	placeholder="Search..."
-	class={cn(
-		"w-full rounded-md border py-2 pl-10 pr-4 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500",
-		className
-	)}
-	{...restProps}
-/>
+<div class="relative w-full" data-command-input-wrapper="">
+	<Search
+		class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform cursor-text text-gray-400"
+		tabindex={0}
+		onclick={focusInput}
+	/>
+	<Input
+		type="text"
+		bind:value
+		placeholder="Search..."
+		class={cn(
+			"w-full rounded-md border py-2 pl-10 pr-4 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500",
+			className
+		)}
+		{...restProps}
+	/>
+</div>
