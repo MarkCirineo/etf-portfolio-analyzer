@@ -81,31 +81,29 @@
 	<Search bind:value={searchQuery} />
 	<!-- Results -->
 	{#if isFocused}
-		<div class="relative">
-			<div
-				class="absolute z-10 mt-1 max-h-96 w-full overflow-y-auto bg-white shadow-sm dark:bg-zinc-900"
-			>
-				{#if loading}
-					<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">Loading...</p>
-				{:else if items && items.length > 0}
-					<ul class="divide-y divide-zinc-200 rounded-md border dark:divide-zinc-700">
-						{#each items as item}
-							<li class="p-4 hover:bg-zinc-100 dark:hover:bg-zinc-700">
-								<div class="font-medium text-zinc-900 dark:text-zinc-100">
-									{item.symbol}
-								</div>
-								<div class="text-sm text-zinc-500 dark:text-zinc-400">
-									{item.description}
-								</div>
-							</li>
-						{/each}
-					</ul>
-				{:else if noResults}
-					<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">
-						No results found.
-					</p>
-				{/if}
-			</div>
+		<div
+			class="absolute z-10 mt-1 max-h-96 w-full overflow-y-auto bg-white shadow-sm dark:bg-zinc-900"
+		>
+			{#if loading}
+				<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">Loading...</p>
+			{:else if items && items.length > 0}
+				<ul class="divide-y divide-zinc-200 rounded-md border dark:divide-zinc-700">
+					{#each items as item}
+						<li class="p-4 hover:bg-zinc-100 dark:hover:bg-zinc-700">
+							<div class="font-medium text-zinc-900 dark:text-zinc-100">
+								{item.symbol}
+							</div>
+							<div class="text-sm text-zinc-500 dark:text-zinc-400">
+								{item.description}
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{:else if noResults}
+				<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">
+					No results found.
+				</p>
+			{/if}
 		</div>
 	{/if}
 </div>
