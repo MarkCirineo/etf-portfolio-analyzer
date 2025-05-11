@@ -909,10 +909,10 @@ minimatch@^9.0.4:
   resolved "https://registry.yarnpkg.com/minipass/-/minipass-7.1.2.tgz#93a9626ce5e5e66bd4db86849e7515e92340a707"
   integrity sha512-qOOzS1cBTWYF4BH8fVePDBOO9iptMnGUEZwNc/cMWnTV2nVLZ7VoNWEPHkYczZA0pdoA7dl6e7FL659nX9S2aw==
 
-mode-watcher@^1.0.2:
-  version "1.0.2"
-  resolved "https://registry.yarnpkg.com/mode-watcher/-/mode-watcher-1.0.2.tgz#b3dd0543e159dfa7afe0d528ceade75d4d06546a"
-  integrity sha512-b3ghU4F4kZeRHHPlsVeCltBgYRHNr7HNyT9JTlvIIvuob7Vulu7iKCfaKNU4FGugBIFWyK5q4bDhqCeZy3Cuxw==
+mode-watcher@^1.0.7:
+  version "1.0.7"
+  resolved "https://registry.yarnpkg.com/mode-watcher/-/mode-watcher-1.0.7.tgz#ba7704302d5eb13c8d7e62de95a2c3a9d377dac2"
+  integrity sha512-ZGA7ZGdOvBJeTQkzdBOnXSgTkO6U6iIFWJoyGCTt6oHNg9XP9NBvS26De+V4W2aqI+B0yYXUskFG2VnEo3zyMQ==
   dependencies:
     runed "^0.25.0"
     svelte-toolbelt "^0.7.1"
@@ -1287,6 +1287,11 @@ svelte-check@^4.0.0:
     fdir "^6.2.0"
     picocolors "^1.0.0"
     sade "^1.7.4"
+
+svelte-sonner@^0.3.28:
+  version "0.3.28"
+  resolved "https://registry.yarnpkg.com/svelte-sonner/-/svelte-sonner-0.3.28.tgz#b24b3e7af924d5c50ca2e33cede1382283074abf"
+  integrity sha512-K3AmlySeFifF/cKgsYNv5uXqMVNln0NBAacOYgmkQStLa/UoU0LhfAACU6Gr+YYC8bOCHdVmFNoKuDbMEsppJg==
 
 svelte-toolbelt@^0.7.1:
   version "0.7.1"
