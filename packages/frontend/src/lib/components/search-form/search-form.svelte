@@ -1,22 +1,18 @@
 <script lang="ts">
-	import { onDestroy } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { request } from "$lib/request";
 	import Search from "../ui/search/search.svelte";
+	import type { SearchItem } from "$lib/types";
 
-	let searchQuery = "";
+	let searchQuery = $state("");
 	let debounceInterval: ReturnType<typeof setTimeout> | null = null;
 
-	type Item = {
-		description: string;
-		displaySymbol: string;
-		symbol: string;
-		type: string;
-	};
+	let items: SearchItem[] = $state([]);
+	let loading = $state(false);
+	let isFocused = $state(false);
+	let noResults = $state(false);
 
-	let items: Item[] = [];
-	let loading = false;
-	let isFocused = false;
-	let noResults = false;
+	let { clickedItem } = $props();
 
 	const submitSearch = async () => {
 		loading = true;
@@ -54,11 +50,14 @@
 		isFocused = true;
 	};
 
-	const handleBlur = () => {
-		isFocused = false;
+	const handleClickOutside = (event: MouseEvent) => {
+		const dropdown = document.querySelector(".dropdown-container");
+		if (dropdown && !dropdown.contains(event.target as Node)) {
+			isFocused = false;
+		}
 	};
 
-	$: {
+	$effect(() => {
 		if (searchQuery.length > 0) {
 			debounceSearch();
 		} else {
@@ -68,16 +67,31 @@
 			items = [];
 			noResults = false;
 		}
-	}
+	});
+
+	const handleClick = (e: MouseEvent, item: SearchItem) => {
+		isFocused = false;
+
+		clickedItem(item);
+	};
+
+	onMount(() => {
+		if (typeof document !== "undefined") {
+			document.addEventListener("mousedown", handleClickOutside);
+		}
+	});
 
 	onDestroy(() => {
 		if (debounceInterval) {
 			clearTimeout(debounceInterval);
 		}
+		if (typeof document !== "undefined") {
+			document.removeEventListener("mousedown", handleClickOutside);
+		}
 	});
 </script>
 
-<div on:focusin={handleFocus} on:focusout={handleBlur}>
+<div onfocusin={handleFocus} class="dropdown-container">
 	<Search bind:value={searchQuery} />
 	<!-- Results -->
 	{#if isFocused}
@@ -87,18 +101,22 @@
 			{#if loading}
 				<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">Loading...</p>
 			{:else if items && items.length > 0}
-				<ul class="divide-y divide-zinc-200 rounded-md border dark:divide-zinc-700">
+				<div class="divide-y divide-zinc-200 rounded-md border dark:divide-zinc-700">
 					{#each items as item}
-						<li class="p-4 hover:bg-zinc-100 dark:hover:bg-zinc-700">
+						<button
+							type="button"
+							class="w-full p-4 text-left hover:bg-zinc-100 dark:hover:bg-zinc-700"
+							onclick={(e) => handleClick(e, item)}
+						>
 							<div class="font-medium text-zinc-900 dark:text-zinc-100">
 								{item.symbol}
 							</div>
 							<div class="text-sm text-zinc-500 dark:text-zinc-400">
 								{item.description}
 							</div>
-						</li>
+						</button>
 					{/each}
-				</ul>
+				</div>
 			{:else if noResults}
 				<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">
 					No results found.
