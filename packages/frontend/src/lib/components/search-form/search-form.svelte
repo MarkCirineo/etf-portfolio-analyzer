@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, onMount } from "svelte";
+	import { toast } from "svelte-sonner";
 	import { request } from "$lib/request";
 	import Search from "../ui/search/search.svelte";
 	import type { SearchItem } from "$lib/types";
@@ -12,7 +13,12 @@
 	let isFocused = $state(false);
 	let noResults = $state(false);
 
-	let { clickedItem } = $props();
+	type Props = {
+		clickedItem: (item: SearchItem) => void;
+		list: SearchItem[];
+	};
+
+	const { clickedItem, list }: Props = $props();
 
 	const submitSearch = async () => {
 		loading = true;
@@ -71,6 +77,11 @@
 
 	const handleClick = (e: MouseEvent, item: SearchItem) => {
 		isFocused = false;
+
+		if (list.some((i) => i.symbol === item.symbol)) {
+			toast.error("Item already exists in the list");
+			return;
+		}
 
 		clickedItem(item);
 	};

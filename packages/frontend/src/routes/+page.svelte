@@ -14,7 +14,7 @@
 
 <div class="flex h-screen items-center justify-center">
 	<div class="relative w-1/2">
-		<SearchForm clickedItem={handleClicked} />
+		<SearchForm clickedItem={handleClicked} {list} />
 		<StockList {list} {newlyAddedSymbol} />
 	</div>
 </div>
