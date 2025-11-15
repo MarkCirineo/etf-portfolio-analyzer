@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import morgan from "morgan";
 
+import "@db";
 import config from "@config";
 import logger from "@logger";
 import router from "@routes";
