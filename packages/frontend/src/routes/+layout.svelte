@@ -2,12 +2,17 @@
 	import "../app.css";
 	import { ModeWatcher } from "mode-watcher";
 	import { onMount } from "svelte";
+	import UserRound from "@lucide/svelte/icons/user-round";
+	import LogOut from "@lucide/svelte/icons/log-out";
 
 	import LightSwitch from "$lib/components/ui/light-switch/light-switch.svelte";
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import { AuthDialog } from "$lib/components/auth";
 	import { authStore } from "$lib/stores/auth";
+	import * as Avatar from "$lib/components/ui/avatar";
+	import * as Popover from "$lib/components/ui/popover";
+	import type { AuthUser } from "$lib/types";
 
 	const auth = authStore;
 
@@ -16,6 +21,21 @@
 	});
 
 	let { children } = $props();
+
+	const getInitials = (user?: AuthUser | null): string | null => {
+		if (!user) return null;
+		const base = user.username?.trim() || user.email?.trim();
+		if (!base) return null;
+		const parts = base.split(/\s+/).filter(Boolean);
+		if (!parts.length) return null;
+		if (parts.length === 1) {
+			return parts[0]!.slice(0, 2).toUpperCase();
+		}
+		return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
+	};
+
+	$: currentUser = $auth.user;
+	$: userInitials = getInitials(currentUser);
 </script>
 
 {@render children()}
@@ -25,27 +45,82 @@
 <Toaster richColors position="bottom-center" />
 
 <div class="options">
-	{#if $auth.status === "authenticated" && $auth.user}
-		<div class="session-card">
-			<div class="text-right">
-				<p class="text-sm font-medium truncate">
-					{$auth.user.username || $auth.user.email}
-				</p>
-				<p class="text-xs text-muted-foreground">Signed in</p>
+	<Popover.Root>
+		<Popover.Trigger
+			class="avatar-trigger focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none"
+			aria-label="Open account menu"
+		>
+			<Avatar.Root>
+				{#if userInitials}
+					<Avatar.Fallback>{userInitials}</Avatar.Fallback>
+				{:else}
+					<Avatar.Fallback class="text-muted-foreground">
+						<UserRound class="size-4" />
+					</Avatar.Fallback>
+				{/if}
+			</Avatar.Root>
+		</Popover.Trigger>
+
+		<Popover.Content sideOffset={14} align="end" class="account-popover w-72 p-0">
+			<div class="space-y-4 p-4">
+				<div class="space-y-1">
+					<p class="text-sm font-medium text-foreground">
+						{#if $auth.status === "authenticated" && $auth.user}
+							{$auth.user.username || $auth.user.email}
+						{:else}
+							Account
+						{/if}
+					</p>
+					<p class="text-xs text-muted-foreground">
+						{#if $auth.status === "authenticated" && $auth.user}
+							{$auth.user.email}
+						{:elseif $auth.status === "loading" || $auth.status === "idle"}
+							Checking session…
+						{:else}
+							Sign in to sync watchlists and preferences.
+						{/if}
+					</p>
+				</div>
+
+				{#if $auth.status === "authenticated" && $auth.user}
+					<Button
+						variant="ghost"
+						class="w-full justify-between"
+						onclick={() => auth.logout()}
+					>
+						Log out
+						<LogOut class="size-4" />
+					</Button>
+				{:elseif $auth.status === "loading" || $auth.status === "idle"}
+					<div class="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+						Hang tight while we verify your session.
+					</div>
+				{:else}
+					<div class="flex flex-col gap-2">
+						<AuthDialog
+							mode="login"
+							triggerVariant="ghost"
+							triggerSize="sm"
+							class="w-full justify-start"
+						/>
+						<AuthDialog
+							mode="signup"
+							triggerVariant="default"
+							triggerSize="sm"
+							class="w-full justify-start"
+						/>
+					</div>
+				{/if}
+
+				<div class="space-y-2 border-t pt-3">
+					<div class="flex items-center justify-between text-sm">
+						<span class="text-muted-foreground">Appearance</span>
+						<LightSwitch />
+					</div>
+				</div>
 			</div>
-			<Button size="sm" variant="outline" onclick={() => auth.logout()}>Log out</Button>
-		</div>
-	{:else if $auth.status === "loading" || $auth.status === "idle"}
-		<div class="session-card">
-			<p class="text-sm font-medium">Checking session...</p>
-		</div>
-	{:else}
-		<div class="flex flex-wrap gap-3">
-			<AuthDialog mode="login" />
-			<AuthDialog mode="signup" />
-		</div>
-	{/if}
-	<LightSwitch />
+		</Popover.Content>
+	</Popover.Root>
 </div>
 
 <style>
@@ -53,20 +128,26 @@
 		position: fixed;
 		top: 1rem;
 		right: 1rem;
-		display: flex;
-		gap: 1rem;
-		align-items: flex-start;
 	}
 
-	.session-card {
-		display: flex;
-		align-items: center;
-		gap: 0.75rem;
-		border-radius: 0.5rem;
+	.avatar-trigger {
 		border: 1px solid hsl(var(--border));
 		background-color: hsl(var(--background));
-		padding: 0.6rem 0.75rem;
-		min-width: 12rem;
-		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+		border-radius: 9999px;
+		padding: 0.15rem;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+		transition: transform 0.15s ease, box-shadow 0.2s ease;
+		display: inline-flex;
+	}
+
+	.avatar-trigger:hover {
+		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+		transform: translateY(-1px);
+	}
+
+	.account-popover {
+		background-color: hsl(var(--background));
+		border-color: hsl(var(--border));
+		box-shadow: 0 20px 45px rgba(0, 0, 0, 0.12);
 	}
 </style>
