@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import cookieParser from "cookie-parser";
 
 import "@db";
 import config from "@config";
@@ -13,8 +14,17 @@ const PORT = config.PORT || 3000;
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
-app.use(cors());
+const corsOptions: cors.CorsOptions = {
+	credentials: true
+};
+
+if (config.origin) {
+	corsOptions.origin = config.origin;
+}
+
+app.use(cors(corsOptions));
 app.use(
 	morgan(
 		`[:date[iso]] - :method :url :status :response-time ms - :res[content-length] ":user-agent"`
