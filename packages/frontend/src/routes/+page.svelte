@@ -16,7 +16,7 @@
 		newlyAddedSymbol = item.symbol;
 	};
 
-	const saveWatchlist = async () => {
+	const saveList = async () => {
 		if (list.length === 0) {
 			toast.error("Add at least one ticker before saving.");
 			return;
@@ -26,7 +26,7 @@
 		saveError = null;
 
 		try {
-			const response = await request("/watchlist", {
+			const response = await request("/list", {
 				method: "POST",
 				body: JSON.stringify({
 					tickers: list.map((item) => item.symbol)
@@ -36,7 +36,7 @@
 			const body = await response.json().catch(() => ({}));
 
 			if (!response.ok) {
-				throw new Error(body?.message ?? "Failed to save watchlist");
+				throw new Error(body?.message ?? "Failed to save list");
 			}
 
 			lastSavedAt = body?.data?.updatedAt ?? new Date().toISOString();
@@ -45,7 +45,7 @@
 
 			toast.success(`Saved ${tickersSaved} ticker${tickersSaved === 1 ? "" : "s"} to the backend.`);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : "Failed to save watchlist";
+			const message = error instanceof Error ? error.message : "Failed to save list";
 			saveError = message;
 			toast.error(message);
 		} finally {
@@ -63,12 +63,12 @@
 				type="button"
 				class="w-full rounded-md bg-zinc-900 py-2 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"
 				disabled={isSaving || list.length === 0}
-				onclick={saveWatchlist}
+				onclick={saveList}
 			>
 				{#if isSaving}
 					Saving...
 				{:else}
-					Save watchlist to backend
+					Save list to backend
 				{/if}
 			</button>
 			{#if lastSavedAt}

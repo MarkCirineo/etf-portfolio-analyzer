@@ -2,18 +2,18 @@ import { Request, Router } from "express";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
 
-type WatchlistPayload = {
+type ListPayload = {
 	tickers: string[];
 };
 
-type WatchlistState = {
+type ListState = {
 	tickers: string[];
 	updatedAt: string | null;
 };
 
 const router = Router();
 
-let watchlistState: WatchlistState = {
+let listState: ListState = {
 	tickers: [],
 	updatedAt: null
 };
@@ -39,10 +39,10 @@ const sanitizeTickers = (tickers: string[]): string[] => {
 };
 
 router.get("/", (_req, res) => {
-	res.status(200).send({ data: watchlistState });
+	res.status(200).send({ data: listState });
 });
 
-router.post("/", (req: Request<{}, {}, WatchlistPayload>, res, next) => {
+router.post("/", (req: Request<{}, {}, ListPayload>, res, next) => {
 	try {
 		const { tickers } = req.body;
 
@@ -52,22 +52,22 @@ router.post("/", (req: Request<{}, {}, WatchlistPayload>, res, next) => {
 
 		const sanitizedTickers = sanitizeTickers(tickers);
 
-		watchlistState = {
+		listState = {
 			tickers: sanitizedTickers,
 			updatedAt: new Date().toISOString()
 		};
 
 		logger.info(
-			`Watchlist updated with ${watchlistState.tickers.length} tickers: ${watchlistState.tickers.join(", ")}`
+			`List updated with ${listState.tickers.length} tickers: ${listState.tickers.join(", ")}`
 		);
 
-		res.status(200).send({ data: watchlistState });
+		res.status(200).send({ data: listState });
 	} catch (error) {
 		if (error instanceof HttpError) {
 			return next(error);
 		}
 
-		next(new HttpError("Failed to save watchlist", 500));
+		next(new HttpError("Failed to save list", 500));
 	}
 });
 
