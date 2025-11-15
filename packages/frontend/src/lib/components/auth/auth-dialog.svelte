@@ -26,24 +26,25 @@
 		login: {
 			triggerLabel: "Log in",
 			title: "Welcome back",
-			description: "Enter your credentials to continue. This is a placeholder flow.",
+			description: "Enter your credentials to continue.",
 			actionLabel: "Continue",
-			successMessage: "Login request accepted. Real authentication is coming soon.",
-			helper: "Use any email and password combination. Nothing is stored yet."
+			successMessage: "Login successful!",
+			helper: "Enter your email and password to log in."
 		},
 		signup: {
 			triggerLabel: "Sign up",
 			title: "Create an account",
-			description: "Start building watchlists once authentication is wired up.",
+			description: "Create an account to start building lists.",
 			actionLabel: "Create account",
-			successMessage: "Signup request accepted. We will persist data once storage is ready.",
-			helper: "Provide any credentials for now—this UI is only a scaffold."
+			successMessage: "Account created successfully!",
+			helper: "Choose a username, email, and password (min 8 characters)."
 		}
 	};
 
 	type AuthForm = {
 		email: string;
 		password: string;
+		username?: string;
 	};
 
 	type SubmissionFeedback = {
@@ -53,7 +54,8 @@
 
 	const buildInitialForm = (): AuthForm => ({
 		email: "",
-		password: ""
+		password: "",
+		username: mode === "signup" ? "" : undefined
 	});
 
 	let {
@@ -85,7 +87,9 @@
 		isError: false
 	});
 
-	let isSubmitDisabled = $derived(() => !form.email || !form.password || isSubmitting);
+	let isSubmitDisabled = $derived(
+		() => !form.email || !form.password || (mode === "signup" && !form.username) || isSubmitting
+	);
 
 	const handleSubmit = async () => {
 		if (isSubmitting) return;
@@ -94,12 +98,18 @@
 		feedback = { message: null, isError: false };
 
 		try {
+			const requestBody: { email: string; password: string; username?: string } = {
+				email: form.email,
+				password: form.password
+			};
+
+			if (mode === "signup" && form.username) {
+				requestBody.username = form.username;
+			}
+
 			const response = await request(`/auth/${mode}`, {
 				method: "POST",
-				body: JSON.stringify({
-					email: form.email,
-					password: form.password
-				})
+				body: JSON.stringify(requestBody)
 			});
 
 			type ApiResponse = { message?: string };
@@ -123,6 +133,11 @@
 			};
 
 			form = buildInitialForm();
+
+			// Close dialog on success after a short delay
+			setTimeout(() => {
+				open = false;
+			}, 1500);
 		} catch (error) {
 			const message =
 				error instanceof Error ? error.message : "Something went wrong. Please try again.";
@@ -150,6 +165,7 @@
 
 	const emailId = `auth-${mode}-email`;
 	const passwordId = `auth-${mode}-password`;
+	const usernameId = `auth-${mode}-username`;
 </script>
 
 <Dialog.Root bind:open>
@@ -176,6 +192,21 @@
 				handleSubmit();
 			}}
 		>
+			{#if mode === "signup"}
+				<div class="space-y-2">
+					<label class="text-foreground text-sm font-medium" for={usernameId}
+						>Username</label
+					>
+					<Input
+						id={usernameId}
+						type="text"
+						placeholder="johndoe"
+						bind:value={form.username}
+						required
+						maxlength={25}
+					/>
+				</div>
+			{/if}
 			<div class="space-y-2">
 				<label class="text-foreground text-sm font-medium" for={emailId}>Email</label>
 				<Input
