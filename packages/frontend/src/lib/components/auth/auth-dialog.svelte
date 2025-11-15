@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button, {
 		type ButtonSize,
-		type ButtonVariant,
+		type ButtonVariant
 	} from "$lib/components/ui/button/button.svelte";
 	import Input from "$lib/components/ui/input/input.svelte";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
@@ -68,19 +68,24 @@
 		triggerSize?: ButtonSize;
 	} = $props();
 
-	let buttonVariant: ButtonVariant;
-	$: buttonVariant = triggerVariant ?? (mode === "signup" ? "default" : "outline");
+	let buttonVariant: ButtonVariant = $state(
+		triggerVariant ?? (mode === "signup" ? "default" : "outline")
+	);
 
-	let open = false;
-	let form: AuthForm = buildInitialForm();
-	let isSubmitting = false;
-	let feedback: SubmissionFeedback = {
+	$effect(() => {
+		buttonVariant = triggerVariant ?? (mode === "signup" ? "default" : "outline");
+	});
+
+	let open = $state(false);
+	let form: AuthForm = $state(buildInitialForm());
+	let isSubmitting = $state(false);
+
+	let feedback: SubmissionFeedback = $state({
 		message: null,
 		isError: false
-	};
+	});
 
-	let isSubmitDisabled = true;
-	$: isSubmitDisabled = !form.email || !form.password || isSubmitting;
+	let isSubmitDisabled = $derived(() => !form.email || !form.password || isSubmitting);
 
 	const handleSubmit = async () => {
 		if (isSubmitting) return;
@@ -137,9 +142,11 @@
 		isSubmitting = false;
 	};
 
-	$: if (!open) {
-		resetState();
-	}
+	$effect(() => {
+		if (!open) {
+			resetState();
+		}
+	});
 
 	const emailId = `auth-${mode}-email`;
 	const passwordId = `auth-${mode}-password`;
@@ -151,7 +158,7 @@
 		variant={buttonVariant}
 		size={triggerSize}
 		aria-haspopup="dialog"
-		on:click={() => (open = true)}
+		onclick={() => (open = true)}
 	>
 		{copy[mode].triggerLabel}
 	</Button>
@@ -162,9 +169,15 @@
 			<Dialog.Description>{copy[mode].description}</Dialog.Description>
 		</Dialog.Header>
 
-		<form class="space-y-4" on:submit|preventDefault={handleSubmit}>
+		<form
+			class="space-y-4"
+			onsubmit={(e) => {
+				e.preventDefault();
+				handleSubmit();
+			}}
+		>
 			<div class="space-y-2">
-				<label class="text-sm font-medium text-foreground" for={emailId}>Email</label>
+				<label class="text-foreground text-sm font-medium" for={emailId}>Email</label>
 				<Input
 					id={emailId}
 					type="email"
@@ -174,18 +187,18 @@
 				/>
 			</div>
 			<div class="space-y-2">
-				<label class="text-sm font-medium text-foreground" for={passwordId}>Password</label>
+				<label class="text-foreground text-sm font-medium" for={passwordId}>Password</label>
 				<Input
 					id={passwordId}
 					type="password"
 					placeholder="••••••••"
 					bind:value={form.password}
 					required
-					minlength="8"
+					minlength={8}
 				/>
 			</div>
 
-			<Button type="submit" class="w-full" disabled={isSubmitDisabled}>
+			<Button type="submit" class="w-full" disabled={isSubmitDisabled()}>
 				{isSubmitting ? "Submitting..." : copy[mode].actionLabel}
 			</Button>
 		</form>
