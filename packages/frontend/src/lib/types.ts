@@ -4,3 +4,10 @@ export type SearchItem = {
 	symbol: string;
 	type: string;
 };
+
+export type AuthUser = {
+	id: number;
+	email: string;
+	username: string;
+	role: string;
+};

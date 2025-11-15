@@ -16,6 +16,26 @@ const generateToken = (userId: number, email: string, role: string): string => {
 	});
 };
 
+type DecodedToken = {
+	userId: number;
+	email: string;
+	role: string;
+	exp: number;
+	iat: number;
+};
+
+const verifyToken = (token: string): DecodedToken => {
+	try {
+		return jwt.verify(token, config.jwt_secret) as DecodedToken;
+	} catch (error) {
+		if (error instanceof jwt.TokenExpiredError) {
+			throw new HttpError("Session expired. Please log in again.", 401);
+		}
+
+		throw new HttpError("Invalid authentication token", 401);
+	}
+};
+
 // Helper function to set JWT cookie
 const setAuthCookie = (res: any, token: string) => {
 	res.cookie("auth_token", token, {
@@ -170,6 +190,39 @@ router.post("/logout", (req, res) => {
 	res.status(200).json({
 		message: "Logged out successfully"
 	});
+});
+
+router.get("/me", async (req, res, next) => {
+	try {
+		const token = req.cookies?.auth_token;
+
+		if (!token) {
+			throw new HttpError("Not authenticated", 401);
+		}
+
+		const decoded = verifyToken(token);
+
+		const user = await db
+			.selectFrom("users")
+			.select(["id", "email", "username", "role"])
+			.where("id", "=", decoded.userId)
+			.executeTakeFirst();
+
+		if (!user) {
+			throw new HttpError("User not found", 404);
+		}
+
+		res.status(200).json({
+			user: {
+				id: user.id,
+				email: user.email,
+				username: user.username,
+				role: user.role
+			}
+		});
+	} catch (error) {
+		next(error);
+	}
 });
 
 export default router;
