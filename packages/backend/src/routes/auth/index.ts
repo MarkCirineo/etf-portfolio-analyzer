@@ -49,7 +49,7 @@ const setAuthCookie = (res: any, token: string) => {
 // Signup route
 router.post("/signup", async (req, res, next) => {
 	try {
-		const { email, password, username } = req.body ?? {};
+		const { email, password, username, avatar } = req.body ?? {};
 
 		// Validation
 		if (!email || !password) {
@@ -62,6 +62,10 @@ router.post("/signup", async (req, res, next) => {
 
 		if (password.length < 8) {
 			throw new HttpError("Password must be at least 8 characters long", 400);
+		}
+
+		if (avatar && typeof avatar === "string" && avatar.length > 1_000_000) {
+			throw new HttpError("Avatar payload is too large", 413);
 		}
 
 		// Check if user already exists
@@ -99,7 +103,8 @@ router.post("/signup", async (req, res, next) => {
 				email,
 				username,
 				password: hashedPassword,
-				role: "user"
+				role: "user",
+				avatar: avatar ?? null
 			})
 			.returningAll()
 			.executeTakeFirstOrThrow();
@@ -118,7 +123,8 @@ router.post("/signup", async (req, res, next) => {
 				id: newUser.id,
 				email: newUser.email,
 				username: newUser.username,
-				role: newUser.role
+				role: newUser.role,
+				avatar: newUser.avatar
 			}
 		});
 	} catch (error) {
@@ -168,7 +174,8 @@ router.post("/login", async (req, res, next) => {
 				id: user.id,
 				email: user.email,
 				username: user.username,
-				role: user.role
+				role: user.role,
+				avatar: user.avatar
 			}
 		});
 	} catch (error) {
@@ -204,7 +211,7 @@ router.get("/me", async (req, res, next) => {
 
 		const user = await db
 			.selectFrom("users")
-			.select(["id", "email", "username", "role"])
+			.select(["id", "email", "username", "role", "avatar"])
 			.where("id", "=", decoded.userId)
 			.executeTakeFirst();
 

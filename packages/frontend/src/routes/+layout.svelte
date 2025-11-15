@@ -15,6 +15,7 @@
 	import type { AuthUser } from "$lib/types";
 
 	const auth = authStore;
+	let accountMenuOpen = $state(false);
 
 	onMount(() => {
 		auth.refreshSession();
@@ -34,8 +35,29 @@
 		return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
 	};
 
+	const formatAvatarSrc = (avatar?: string | null): string | null => {
+		if (!avatar) return null;
+		const trimmed = avatar.trim();
+		if (!trimmed) return null;
+		return trimmed.startsWith("data:") ? trimmed : `data:image/png;base64,${trimmed}`;
+	};
+
+	const closeAccountMenu = () => {
+		accountMenuOpen = false;
+	};
+
+	const handleAuthTrigger = () => {
+		closeAccountMenu();
+	};
+
+	const handleLogout = () => {
+		auth.logout();
+		closeAccountMenu();
+	};
+
 	$: currentUser = $auth.user;
 	$: userInitials = getInitials(currentUser);
+	$: avatarSrc = formatAvatarSrc(currentUser?.avatar ?? null);
 </script>
 
 {@render children()}
@@ -45,13 +67,18 @@
 <Toaster richColors position="bottom-center" />
 
 <div class="options">
-	<Popover.Root>
+	<Popover.Root bind:open={accountMenuOpen}>
 		<Popover.Trigger
 			class="avatar-trigger focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none"
 			aria-label="Open account menu"
 		>
 			<Avatar.Root>
-				{#if userInitials}
+				{#if avatarSrc}
+					<Avatar.Image src={avatarSrc} alt="Profile avatar" />
+					<Avatar.Fallback class="sr-only">
+						{userInitials}
+					</Avatar.Fallback>
+				{:elseif userInitials}
 					<Avatar.Fallback>{userInitials}</Avatar.Fallback>
 				{:else}
 					<Avatar.Fallback class="text-muted-foreground">
@@ -83,11 +110,7 @@
 				</div>
 
 				{#if $auth.status === "authenticated" && $auth.user}
-					<Button
-						variant="ghost"
-						class="w-full justify-between"
-						onclick={() => auth.logout()}
-					>
+					<Button variant="ghost" class="w-full justify-between" onclick={handleLogout}>
 						Log out
 						<LogOut class="size-4" />
 					</Button>
@@ -102,12 +125,14 @@
 							triggerVariant="ghost"
 							triggerSize="sm"
 							class="w-full justify-start"
+							onTrigger={handleAuthTrigger}
 						/>
 						<AuthDialog
 							mode="signup"
 							triggerVariant="default"
 							triggerSize="sm"
 							class="w-full justify-start"
+							onTrigger={handleAuthTrigger}
 						/>
 					</div>
 				{/if}

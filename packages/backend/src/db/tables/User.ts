@@ -6,6 +6,7 @@ export default interface UserTable {
 	email: string;
 	password: string;
 	role: "admin" | "user";
+	avatar: string | null;
 	createdAt: Generated<Date>;
 	updatedAt: Generated<Date>;
 }
@@ -16,6 +17,7 @@ export type User = {
 	email: string;
 	password: string;
 	role: "admin" | "user";
+	avatar: string | null;
 	createdAt: Date;
 	updatedAt: Date;
 };

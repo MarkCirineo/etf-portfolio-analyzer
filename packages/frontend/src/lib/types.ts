@@ -10,4 +10,5 @@ export type AuthUser = {
 	email: string;
 	username: string;
 	role: string;
+	avatar: string | null;
 };

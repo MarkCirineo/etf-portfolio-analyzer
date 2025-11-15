@@ -66,12 +66,14 @@
 		mode,
 		class: className = "",
 		triggerVariant,
-		triggerSize = "default"
+		triggerSize = "default",
+		onTrigger
 	}: {
 		mode: AuthMode;
 		class?: string;
 		triggerVariant?: ButtonVariant;
 		triggerSize?: ButtonSize;
+		onTrigger?: () => void;
 	} = $props();
 
 	let buttonVariant: ButtonVariant = $state(
@@ -182,7 +184,10 @@
 		variant={buttonVariant}
 		size={triggerSize}
 		aria-haspopup="dialog"
-		onclick={() => (open = true)}
+		onclick={() => {
+			onTrigger?.();
+			open = true;
+		}}
 	>
 		{copy[mode].triggerLabel}
 	</Button>
