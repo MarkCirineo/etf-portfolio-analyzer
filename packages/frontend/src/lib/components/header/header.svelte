@@ -37,17 +37,9 @@
 		return trimmed.startsWith("data:") ? trimmed : `data:image/png;base64,${trimmed}`;
 	};
 
-	const closeAccountMenu = () => {
-		accountMenuOpen = false;
-	};
-
-	const handleAuthTrigger = () => {
-		closeAccountMenu();
-	};
-
 	const handleLogout = () => {
 		logout();
-		closeAccountMenu();
+		accountMenuOpen = false;
 	};
 
 	const userInitials = $derived(getInitials(auth.user));
@@ -112,14 +104,12 @@
 						triggerVariant="ghost"
 						triggerSize="sm"
 						class="w-full justify-start"
-						onTrigger={handleAuthTrigger}
 					/>
 					<AuthDialog
 						mode="signup"
 						triggerVariant="default"
 						triggerSize="sm"
 						class="w-full justify-start"
-						onTrigger={handleAuthTrigger}
 					/>
 				</div>
 			{/if}
