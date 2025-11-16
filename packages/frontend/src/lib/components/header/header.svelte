@@ -116,7 +116,7 @@
 
 			<div class="space-y-2 border-t pt-3">
 				<div class="flex items-center justify-between text-sm">
-					<span class="text-muted-foreground">Appearance</span>
+					<span class="text-muted-foreground">Theme</span>
 					<LightSwitch />
 				</div>
 			</div>
