@@ -19,22 +19,28 @@
 	});
 
 	const getInitials = (user?: AuthUser | null): string | null => {
-		if (!user) return null;
-		const base = user.username?.trim() || user.email?.trim();
-		if (!base) return null;
-		const parts = base.split(/\s+/).filter(Boolean);
-		if (!parts.length) return null;
-		if (parts.length === 1) {
-			return parts[0]!.slice(0, 2).toUpperCase();
+		if (user) {
+			const base = user.username.trim();
+
+			const parts = base.split(/\s+/).filter(Boolean);
+
+			if (parts.length === 1) {
+				return parts[0]!.slice(0, 2).toUpperCase();
+			}
+
+			return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
 		}
-		return `${parts[0]![0]}${parts[parts.length - 1]![0]}`.toUpperCase();
+
+		return null;
 	};
 
 	const formatAvatarSrc = (avatar?: string | null): string | null => {
-		if (!avatar) return null;
-		const trimmed = avatar.trim();
-		if (!trimmed) return null;
-		return trimmed.startsWith("data:") ? trimmed : `data:image/png;base64,${trimmed}`;
+		if (avatar) {
+			const trimmed = avatar.trim();
+			return trimmed.startsWith("data:") ? trimmed : `data:image/png;base64,${trimmed}`;
+		}
+
+		return null;
 	};
 
 	const handleLogout = () => {
