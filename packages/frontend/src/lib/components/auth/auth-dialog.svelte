@@ -7,7 +7,7 @@
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { request } from "$lib/request";
 	import { cn } from "$lib/utils.js";
-	import { authStore } from "$lib/stores/auth";
+	import { setAuthenticatedUser } from "$lib/stores/auth.svelte";
 	import type { AuthUser } from "$lib/types";
 
 	type AuthMode = "login" | "signup";
@@ -42,8 +42,6 @@
 			helper: "Choose a username, email, and password (min 8 characters)."
 		}
 	};
-
-	const auth = authStore;
 
 	type AuthForm = {
 		email: string;
@@ -113,12 +111,12 @@
 				requestBody.username = form.username;
 			}
 
-  			const response = await request(`/auth/${mode}`, {
+			const response = await request(`/auth/${mode}`, {
 				method: "POST",
 				body: JSON.stringify(requestBody)
 			});
 
-  			type ApiResponse = { message?: string; user?: AuthUser };
+			type ApiResponse = { message?: string; user?: AuthUser };
 
 			let responseBody: ApiResponse | undefined;
 			try {
@@ -133,11 +131,11 @@
 				throw new Error(serverMessage ?? `Unable to ${mode}.`);
 			}
 
-  			if (responseBody?.user) {
-  				auth.setAuthenticatedUser(responseBody.user);
-  			}
+			if (responseBody?.user) {
+				setAuthenticatedUser(responseBody.user);
+			}
 
-  			feedback = {
+			feedback = {
 				message: serverMessage ?? copy[mode].successMessage,
 				isError: false
 			};

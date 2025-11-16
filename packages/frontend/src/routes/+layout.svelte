@@ -9,16 +9,15 @@
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import { AuthDialog } from "$lib/components/auth";
-	import { authStore } from "$lib/stores/auth.svelte";
+	import { auth, refreshSession, logout } from "$lib/stores/auth.svelte";
 	import * as Avatar from "$lib/components/ui/avatar";
 	import * as Popover from "$lib/components/ui/popover";
 	import type { AuthUser } from "$lib/types";
 
-	const auth = authStore;
 	let accountMenuOpen = $state(false);
 
 	onMount(() => {
-		auth.refreshSession();
+		refreshSession();
 	});
 
 	let { children } = $props();
@@ -51,13 +50,12 @@
 	};
 
 	const handleLogout = () => {
-		auth.logout();
+		logout();
 		closeAccountMenu();
 	};
 
-	const currentUser = $derived($auth.user);
-	const userInitials = $derived(getInitials(currentUser));
-	const avatarSrc = $derived(formatAvatarSrc(currentUser?.avatar ?? null));
+	const userInitials = $derived(getInitials(auth.user));
+	const avatarSrc = $derived(formatAvatarSrc(auth.user?.avatar ?? null));
 </script>
 
 {@render children()}
@@ -92,16 +90,16 @@
 			<div class="space-y-4 p-4">
 				<div class="space-y-1">
 					<p class="text-foreground text-sm font-medium">
-						{#if $auth.status === "authenticated" && $auth.user}
-							{$auth.user.username || $auth.user.email}
+						{#if auth.status === "authenticated" && auth.user}
+							{auth.user.username || auth.user.email}
 						{:else}
 							Account
 						{/if}
 					</p>
 					<p class="text-muted-foreground text-xs">
-						{#if $auth.status === "authenticated" && $auth.user}
-							{$auth.user.email}
-						{:else if $auth.status === "loading" || $auth.status === "idle"}
+						{#if auth.status === "authenticated" && auth.user}
+							{auth.user.email}
+						{:else if auth.status === "loading" || auth.status === "idle"}
 							Checking session…
 						{:else}
 							Sign in to sync watchlists and preferences.
@@ -109,12 +107,12 @@
 					</p>
 				</div>
 
-				{#if $auth.status === "authenticated" && $auth.user}
+				{#if auth.status === "authenticated" && auth.user}
 					<Button variant="ghost" class="w-full justify-between" onclick={handleLogout}>
 						Log out
 						<LogOut class="size-4" />
 					</Button>
-				{:else if $auth.status === "loading" || $auth.status === "idle"}
+				{:else if auth.status === "loading" || auth.status === "idle"}
 					<div class="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
 						Hang tight while we verify your session.
 					</div>
