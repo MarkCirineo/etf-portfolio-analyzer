@@ -236,7 +236,6 @@
 					placeholder="••••••••"
 					bind:value={form.password}
 					required
-					minlength={8}
 				/>
 			</div>
 
