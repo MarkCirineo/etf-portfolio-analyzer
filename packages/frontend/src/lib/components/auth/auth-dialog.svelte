@@ -91,8 +91,38 @@
 		isError: false
 	});
 
+	const isEmailValid = (email: string): boolean => {
+		if (mode === "signup") {
+			// Basic robust check: text@text.tld (no spaces), tld >= 2
+			return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+		}
+
+		return true;
+	};
+
+	// Proactively surface email errors in the feedback panel while typing
+	$effect(() => {
+		if (isSubmitting) return;
+
+		// Only show the email error after the user has entered something
+		if (form.email && !isEmailValid(form.email)) {
+			feedback = { message: "Please enter a valid email address.", isError: true };
+			return;
+		}
+
+		// Clear our specific email error when it becomes valid or empty
+		if (feedback.message === "Please enter a valid email address.") {
+			feedback = { message: null, isError: false };
+		}
+	});
+
 	let isSubmitDisabled = $derived(
-		() => !form.email || !form.password || (mode === "signup" && !form.username) || isSubmitting
+		() =>
+			!form.email ||
+			!isEmailValid(form.email) ||
+			!form.password ||
+			(mode === "signup" && !form.username) ||
+			isSubmitting
 	);
 
 	const handleSubmit = async () => {
@@ -100,6 +130,13 @@
 
 		isSubmitting = true;
 		feedback = { message: null, isError: false };
+
+		// Client-side email validation with custom feedback
+		if (!isEmailValid(form.email)) {
+			feedback = { message: "Please enter a valid email address.", isError: true };
+			isSubmitting = false;
+			return;
+		}
 
 		try {
 			const requestBody: { email: string; password: string; username?: string } = {
@@ -116,13 +153,11 @@
 				body: JSON.stringify(requestBody)
 			});
 
-			type ApiResponse = { message?: string; user?: AuthUser };
-
-			let responseBody: ApiResponse | undefined;
+			let responseBody: { message?: string; user?: AuthUser } | null = null;
 			try {
 				responseBody = await response.json();
 			} catch {
-				responseBody = undefined;
+				responseBody = null;
 			}
 
 			const serverMessage = responseBody?.message;
@@ -197,6 +232,7 @@
 		</Dialog.Header>
 
 		<form
+			novalidate
 			class="space-y-4"
 			onsubmit={(e) => {
 				e.preventDefault();
@@ -226,6 +262,7 @@
 					placeholder="you@example.com"
 					bind:value={form.email}
 					required
+					oninvalid={(e) => e.preventDefault()}
 				/>
 			</div>
 			<div class="space-y-2">
