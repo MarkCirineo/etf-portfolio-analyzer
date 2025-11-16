@@ -9,7 +9,7 @@
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
 	import { AuthDialog } from "$lib/components/auth";
-	import { authStore } from "$lib/stores/auth";
+	import { authStore } from "$lib/stores/auth.svelte";
 	import * as Avatar from "$lib/components/ui/avatar";
 	import * as Popover from "$lib/components/ui/popover";
 	import type { AuthUser } from "$lib/types";
@@ -55,9 +55,9 @@
 		closeAccountMenu();
 	};
 
-	$: currentUser = $auth.user;
-	$: userInitials = getInitials(currentUser);
-	$: avatarSrc = formatAvatarSrc(currentUser?.avatar ?? null);
+	const currentUser = $derived($auth.user);
+	const userInitials = $derived(getInitials(currentUser));
+	const avatarSrc = $derived(formatAvatarSrc(currentUser?.avatar ?? null));
 </script>
 
 {@render children()}
@@ -69,7 +69,7 @@
 <div class="options">
 	<Popover.Root bind:open={accountMenuOpen}>
 		<Popover.Trigger
-			class="avatar-trigger focus-visible:ring-ring focus-visible:ring-2 focus-visible:outline-none"
+			class="avatar-trigger focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2"
 			aria-label="Open account menu"
 		>
 			<Avatar.Root>
@@ -78,7 +78,7 @@
 					<Avatar.Fallback class="sr-only">
 						{userInitials}
 					</Avatar.Fallback>
-				{:elseif userInitials}
+				{:else if userInitials}
 					<Avatar.Fallback>{userInitials}</Avatar.Fallback>
 				{:else}
 					<Avatar.Fallback class="text-muted-foreground">
@@ -91,17 +91,17 @@
 		<Popover.Content sideOffset={14} align="end" class="account-popover w-72 p-0">
 			<div class="space-y-4 p-4">
 				<div class="space-y-1">
-					<p class="text-sm font-medium text-foreground">
+					<p class="text-foreground text-sm font-medium">
 						{#if $auth.status === "authenticated" && $auth.user}
 							{$auth.user.username || $auth.user.email}
 						{:else}
 							Account
 						{/if}
 					</p>
-					<p class="text-xs text-muted-foreground">
+					<p class="text-muted-foreground text-xs">
 						{#if $auth.status === "authenticated" && $auth.user}
 							{$auth.user.email}
-						{:elseif $auth.status === "loading" || $auth.status === "idle"}
+						{:else if $auth.status === "loading" || $auth.status === "idle"}
 							Checking session…
 						{:else}
 							Sign in to sync watchlists and preferences.
@@ -114,8 +114,8 @@
 						Log out
 						<LogOut class="size-4" />
 					</Button>
-				{:elseif $auth.status === "loading" || $auth.status === "idle"}
-					<div class="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+				{:else if $auth.status === "loading" || $auth.status === "idle"}
+					<div class="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
 						Hang tight while we verify your session.
 					</div>
 				{:else}
@@ -148,6 +148,7 @@
 	</Popover.Root>
 </div>
 
+<!-- svelte-ignore css_unused_selector -->
 <style>
 	.options {
 		position: fixed;
@@ -161,7 +162,9 @@
 		border-radius: 9999px;
 		padding: 0.15rem;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-		transition: transform 0.15s ease, box-shadow 0.2s ease;
+		transition:
+			transform 0.15s ease,
+			box-shadow 0.2s ease;
 		display: inline-flex;
 	}
 
