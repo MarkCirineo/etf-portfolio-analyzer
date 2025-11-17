@@ -19,12 +19,4 @@ export const createTables = async (db: Kysely<Database>): Promise<void> => {
 	} catch (error: any) {
 		logger.warn(`Failed to create tables: ${error.message}`);
 	}
-
-	try {
-		await db.schema.alterTable("users").addColumn("avatar", "text").execute();
-	} catch (error: any) {
-		if (!error?.message?.includes("column") || !error?.message?.includes("already exists")) {
-			logger.warn(`Failed to ensure avatar column: ${error?.message ?? error}`);
-		}
-	}
 };
