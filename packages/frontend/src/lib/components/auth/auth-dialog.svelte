@@ -117,8 +117,7 @@
 	});
 
 	let isSubmitDisabled = $derived(
-		() =>
-			!form.email ||
+		!form.email ||
 			!isEmailValid(form.email) ||
 			!form.password ||
 			(mode === "signup" && !form.username) ||
@@ -276,7 +275,7 @@
 				/>
 			</div>
 
-			<Button type="submit" class="w-full" disabled={isSubmitDisabled()}>
+			<Button type="submit" class="w-full" disabled={isSubmitDisabled}>
 				{isSubmitting ? "Submitting..." : copy[mode].actionLabel}
 			</Button>
 		</form>
