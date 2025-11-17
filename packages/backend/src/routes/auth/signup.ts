@@ -61,7 +61,8 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 				id: newUser.id,
 				email: newUser.email,
 				username: newUser.username,
-				role: newUser.role
+				role: newUser.role,
+				avatar: newUser.avatar
 			}
 		});
 	} catch (error) {
