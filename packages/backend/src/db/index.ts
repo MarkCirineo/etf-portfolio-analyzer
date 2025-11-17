@@ -1,5 +1,5 @@
 import pg from "pg";
-import { Kysely, PostgresDialect } from "kysely";
+import { CamelCasePlugin, Kysely, PostgresDialect } from "kysely";
 import config from "@config.js";
 import UserTable from "@db/tables/User.js";
 import { createTables } from "@db/tables";
@@ -19,7 +19,8 @@ const db = new Kysely<Database>({
 			password: config.db.password,
 			database: config.db.database
 		})
-	})
+	}),
+	plugins: [new CamelCasePlugin()]
 });
 
 await createTables(db);
