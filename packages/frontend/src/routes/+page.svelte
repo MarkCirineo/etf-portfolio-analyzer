@@ -12,9 +12,11 @@
 	};
 </script>
 
-<div class="flex h-screen items-center justify-center">
-	<div class="relative w-1/2">
-		<SearchForm clickedItem={handleClicked} {list} />
-		<StockList {list} {newlyAddedSymbol} />
-	</div>
+<div class="bg-background flex min-h-screen flex-col">
+	<main class="flex flex-1 items-center justify-center px-6 py-10">
+		<div class="relative w-full max-w-3xl">
+			<SearchForm clickedItem={handleClicked} {list} />
+			<StockList {list} {newlyAddedSymbol} />
+		</div>
+	</main>
 </div>
