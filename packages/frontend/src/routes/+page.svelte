@@ -43,7 +43,9 @@
 
 			const tickersSaved = body?.data?.tickers?.length ?? list.length;
 
-			toast.success(`Saved ${tickersSaved} ticker${tickersSaved === 1 ? "" : "s"} to the backend.`);
+			toast.success(
+				`Saved ${tickersSaved} ticker${tickersSaved === 1 ? "" : "s"} to the backend.`
+			);
 		} catch (error) {
 			const message = error instanceof Error ? error.message : "Failed to save list";
 			saveError = message;
@@ -58,7 +60,9 @@
 	<div class="relative w-1/2">
 		<SearchForm clickedItem={handleClicked} {list} />
 		<StockList {list} {newlyAddedSymbol} />
-		<div class="mt-6 space-y-2 rounded-md border border-dashed border-zinc-300 p-4 text-center dark:border-zinc-700">
+		<div
+			class="mt-6 space-y-2 rounded-md border border-dashed border-zinc-300 p-4 text-center dark:border-zinc-700"
+		>
 			<button
 				type="button"
 				class="w-full rounded-md bg-zinc-900 py-2 text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200"

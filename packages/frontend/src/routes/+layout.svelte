@@ -1,9 +1,8 @@
 <script lang="ts">
 	import "../app.css";
 	import { ModeWatcher } from "mode-watcher";
-
-	import LightSwitch from "$lib/components/ui/light-switch/light-switch.svelte";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
+	import { Header } from "$lib/components/header";
 
 	let { children } = $props();
 </script>
@@ -15,15 +14,37 @@
 <Toaster richColors position="bottom-center" />
 
 <div class="options">
-	<LightSwitch />
+	<Header />
 </div>
 
+<!-- svelte-ignore css_unused_selector -->
 <style>
 	.options {
 		position: fixed;
 		top: 1rem;
 		right: 1rem;
-		display: flex;
-		gap: 1rem;
+	}
+
+	.avatar-trigger {
+		border: 1px solid hsl(var(--border));
+		background-color: hsl(var(--background));
+		border-radius: 9999px;
+		padding: 0.15rem;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+		transition:
+			transform 0.15s ease,
+			box-shadow 0.2s ease;
+		display: inline-flex;
+	}
+
+	.avatar-trigger:hover {
+		box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+		transform: translateY(-1px);
+	}
+
+	.account-popover {
+		background-color: hsl(var(--background));
+		border-color: hsl(var(--border));
+		box-shadow: 0 20px 45px rgba(0, 0, 0, 0.12);
 	}
 </style>
