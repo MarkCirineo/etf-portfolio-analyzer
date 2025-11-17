@@ -7,35 +7,51 @@
 	type Props = {
 		list: SearchItem[];
 		newlyAddedSymbol: string | null;
+		shares: Record<string, number>;
 	};
 
-	const { list, newlyAddedSymbol }: Props = $props();
+	const { list, newlyAddedSymbol, shares }: Props = $props();
 
-	const shares = $state<Record<string, number>>({});
-
+	const shareInputs = $state<Record<string, string>>({});
 	const editing = $state<Record<string, boolean>>({});
 
 	$effect(() => {
 		if (newlyAddedSymbol) {
-			shares[newlyAddedSymbol] = 0;
+			const existingValue = shares[newlyAddedSymbol] ?? 0;
+			shares[newlyAddedSymbol] = existingValue;
+			shareInputs[newlyAddedSymbol] = existingValue.toString();
 			editing[newlyAddedSymbol] = true;
 		}
 	});
 
-	const handleConfirm = (symbol: string, value: number) => {
-		shares[symbol] = value;
+	const handleConfirm = (symbol: string) => {
+		const parsed = Number(shareInputs[symbol] ?? "0");
+
+		if (!Number.isFinite(parsed) || parsed < 0) {
+			shareInputs[symbol] = shares[symbol]?.toString() ?? "0";
+			return;
+		}
+
+		shares[symbol] = parsed;
+		shareInputs[symbol] = parsed.toString();
 		editing[symbol] = false;
 	};
 
 	const handleEdit = (symbol: string) => {
+		shareInputs[symbol] = shares[symbol]?.toString() ?? "0";
 		editing[symbol] = true;
 	};
 
 	const handleRemove = (item: SearchItem) => {
 		const index = list.findIndex((i) => i.symbol === item.symbol);
-		if (index >= 0) {
-			list.splice(index, 1);
+		if (index < 0) {
+			return;
 		}
+
+		list.splice(index, 1);
+		delete shares[item.symbol];
+		delete shareInputs[item.symbol];
+		delete editing[item.symbol];
 	};
 </script>
 
@@ -57,17 +73,17 @@
 				<input
 					type="number"
 					class="w-16 rounded border border-zinc-300 p-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-					bind:value={shares[item.symbol]}
+					bind:value={shareInputs[item.symbol]}
 				/>
 				<button
 					class="text-green-500 hover:text-green-600"
-					onclick={() => handleConfirm(item.symbol, shares[item.symbol])}
+					onclick={() => handleConfirm(item.symbol)}
 				>
 					<Check class="h-4 w-4" />
 				</button>
 			{:else}
 				<span class="text-zinc-900 dark:text-zinc-100">
-					{shares[item.symbol] || 0} shares
+					{shares[item.symbol] ?? 0} shares
 				</span>
 				<button
 					class="text-blue-500 hover:text-blue-600"
