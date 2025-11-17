@@ -9,8 +9,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 	try {
 		const token = req.cookies?.token;
 		if (!token) {
-			// TODO: i dont want to log this error because it's normal for the user to not be authenticated
-			throw new HttpError("Not authenticated", 401);
+			throw new HttpError("Not authenticated", 401, true);
 		}
 
 		const decoded = verifyToken(token);
