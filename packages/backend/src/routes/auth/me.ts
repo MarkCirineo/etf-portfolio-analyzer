@@ -16,7 +16,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
 		const user = await db
 			.selectFrom("users")
-			.select(["id", "email", "username", "role", "avatar"])
+			.select(["publicId", "email", "username", "role", "avatar"])
 			.where("id", "=", decoded.userId)
 			.executeTakeFirst();
 
@@ -26,7 +26,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 
 		res.status(200).json({
 			user: {
-				id: user.id,
+				id: user.publicId,
 				email: user.email,
 				username: user.username,
 				role: user.role,

@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
+import { generatePublicId } from "@utils/id";
 import { generateToken, setAuthCookie } from "./_shared";
 
 const router = Router();
@@ -37,10 +38,12 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 		}
 
 		const hashedPassword = await bcrypt.hash(password, 10);
+		const publicId = generatePublicId();
 
 		const newUser = await db
 			.insertInto("users")
 			.values({
+				publicId,
 				email,
 				username,
 				password: hashedPassword,
@@ -58,7 +61,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 		res.status(201).json({
 			message: "Account created successfully",
 			user: {
-				id: newUser.id,
+				id: newUser.publicId,
 				email: newUser.email,
 				username: newUser.username,
 				role: newUser.role,

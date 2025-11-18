@@ -2,6 +2,7 @@ import { type Request, Router } from "express";
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
+import { generatePublicId } from "@utils/id";
 import { verifyToken } from "@routes/auth/_shared";
 import type { ListContent } from "@db/tables/List";
 
@@ -61,7 +62,14 @@ router.get("/", async (req, res, next) => {
 
 		const lists = await db
 			.selectFrom("lists")
-			.select(["id", "name", "content", "ownerId", "createdAt", "updatedAt"])
+			.select((eb) => [
+				eb.ref("publicId").as("id"),
+				"name",
+				"content",
+				"ownerId",
+				"createdAt",
+				"updatedAt"
+			])
 			.where("ownerId", "=", ownerId)
 			.orderBy("updatedAt", "desc")
 			.execute();
@@ -91,15 +99,24 @@ router.post("/", async (req: Request<{}, {}, ListPayload>, res, next) => {
 		const sanitizedHoldings = sanitizeHoldings(holdings);
 		const trimmedName = typeof name === "string" ? name.trim() : "";
 		const listName = trimmedName.length > 0 ? trimmedName : "Untitled List";
+		const publicId = generatePublicId();
 
 		const insertedList = await db
 			.insertInto("lists")
 			.values({
+				publicId,
 				name: listName,
 				content: sanitizedHoldings,
 				ownerId
 			})
-			.returning(["id", "name", "content", "ownerId", "createdAt", "updatedAt"])
+			.returning((eb) => [
+				eb.ref("publicId").as("id"),
+				"name",
+				"content",
+				"ownerId",
+				"createdAt",
+				"updatedAt"
+			])
 			.executeTakeFirst();
 
 		if (!insertedList) {
