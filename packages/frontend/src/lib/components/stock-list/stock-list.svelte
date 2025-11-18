@@ -10,17 +10,19 @@
 		shares: Record<string, number>;
 	};
 
-	const { list, newlyAddedSymbol, shares }: Props = $props();
+	const props: Props = $props();
+	const { list, shares } = props;
 
 	const shareInputs = $state<Record<string, string>>({});
 	const editing = $state<Record<string, boolean>>({});
 
 	$effect(() => {
-		if (newlyAddedSymbol) {
-			const existingValue = shares[newlyAddedSymbol] ?? 0;
-			shares[newlyAddedSymbol] = existingValue;
-			shareInputs[newlyAddedSymbol] = existingValue.toString();
-			editing[newlyAddedSymbol] = true;
+		if (props.newlyAddedSymbol) {
+			const symbol = props.newlyAddedSymbol;
+			const existingValue = shares[symbol] ?? 0;
+			shares[symbol] = existingValue;
+			shareInputs[symbol] = existingValue.toString();
+			editing[symbol] = true;
 		}
 	});
 

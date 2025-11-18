@@ -61,8 +61,9 @@
 
 			lastSavedAt = body?.data?.updatedAt ?? new Date().toISOString();
 
-			const holdingsSaved =
-				body?.data?.content ? Object.keys(body.data.content).length : list.length;
+			const holdingsSaved = body?.data?.content
+				? Object.keys(body.data.content).length
+				: list.length;
 
 			toast.success(
 				`Saved ${holdingsSaved} holding${holdingsSaved === 1 ? "" : "s"} to the backend.`
@@ -80,7 +81,7 @@
 <div class="flex h-screen items-center justify-center">
 	<div class="relative w-1/2">
 		<SearchForm clickedItem={handleClicked} {list} />
-		<StockList {list} {newlyAddedSymbol} shares={shares} />
+		<StockList {list} {newlyAddedSymbol} {shares} />
 		<div
 			class="mt-6 space-y-2 rounded-md border border-dashed border-zinc-300 p-4 text-center dark:border-zinc-700"
 		>
