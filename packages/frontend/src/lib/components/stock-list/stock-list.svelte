@@ -73,8 +73,10 @@
 		<div class="mt-2 flex items-center space-x-2">
 			{#if editing[item.symbol]}
 				<input
-					type="number"
-					class="w-16 rounded border border-zinc-300 p-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+					type="text"
+					inputmode="numeric"
+					pattern="[0-9]*"
+					class="w-16 rounded border border-zinc-300 p-1 text-center text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
 					bind:value={shareInputs[item.symbol]}
 				/>
 				<button
