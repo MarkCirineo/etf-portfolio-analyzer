@@ -100,7 +100,7 @@
 				{#if isSaving}
 					Saving...
 				{:else}
-					Save list to backend
+					Save List
 				{/if}
 			</button>
 			{#if lastSavedAt}
