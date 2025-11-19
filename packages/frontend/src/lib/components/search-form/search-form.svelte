@@ -65,6 +65,7 @@
 
 	$effect(() => {
 		if (searchQuery.length > 0) {
+			noResults = false;
 			debounceSearch();
 		} else {
 			if (debounceInterval) {
@@ -72,6 +73,7 @@
 			}
 			items = [];
 			noResults = false;
+			loading = false;
 		}
 	});
 
@@ -102,12 +104,12 @@
 	});
 </script>
 
-<div onfocusin={handleFocus} class="dropdown-container">
+<div onfocusin={handleFocus} class="dropdown-container relative w-full">
 	<Search bind:value={searchQuery} />
 	<!-- Results -->
-	{#if isFocused}
+	{#if isFocused && searchQuery.length > 0 && (loading || (items && items.length > 0) || noResults)}
 		<div
-			class="absolute z-10 mt-1 max-h-96 w-full overflow-y-auto bg-white shadow-sm dark:bg-zinc-900"
+			class="absolute z-10 mt-1 max-h-96 w-full overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
 		>
 			{#if loading}
 				<p class="rounded-md border p-4 text-zinc-500 dark:text-zinc-400">Loading...</p>
