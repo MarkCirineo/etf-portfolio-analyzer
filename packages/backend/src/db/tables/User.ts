@@ -2,6 +2,7 @@ import { Generated } from "kysely";
 
 export default interface UserTable {
 	id: Generated<number>;
+	publicId: string;
 	username: string;
 	email: string;
 	password: string;
@@ -13,6 +14,7 @@ export default interface UserTable {
 
 export type User = {
 	id: number;
+	publicId: string;
 	username: string;
 	email: string;
 	password: string;

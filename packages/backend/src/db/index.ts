@@ -2,12 +2,14 @@ import pg from "pg";
 import { CamelCasePlugin, Kysely, PostgresDialect } from "kysely";
 import config from "@config.js";
 import UserTable from "@db/tables/User.js";
+import ListTable from "@db/tables/List.js";
 import { createTables } from "@db/tables";
 
 const { Pool } = pg;
 
 export interface Database {
 	users: UserTable;
+	lists: ListTable;
 }
 
 const db = new Kysely<Database>({
