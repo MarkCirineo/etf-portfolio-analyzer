@@ -2,7 +2,7 @@
 	import "../app.css";
 	import { ModeWatcher } from "mode-watcher";
 	import { Toaster } from "$lib/components/ui/sonner/index.js";
-	import { Header } from "$lib/components/header";
+	import { AccountMenu } from "$lib/components/account-menu";
 	import { Navigation } from "$lib/components/navigation";
 
 	let { children } = $props();
@@ -17,7 +17,7 @@
 <Navigation />
 
 <div class="options">
-	<Header />
+	<AccountMenu />
 </div>
 
 <!-- svelte-ignore css_unused_selector -->
