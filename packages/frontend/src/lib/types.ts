@@ -12,3 +12,12 @@ export type AuthUser = {
 	role: string;
 	avatar: string | null;
 };
+
+export type List = {
+	id: string;
+	name: string;
+	content: Record<string, number>;
+	ownerId: number;
+	createdAt: string;
+	updatedAt: string;
+};
