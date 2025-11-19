@@ -20,9 +20,5 @@ export const finnhub = async (url: string) => {
 };
 
 export const finnhubSearch = async (query: string) => {
-	const baseUrl = "/search";
-
-	const response = await finnhub(`${baseUrl}?q=${query}&exchange=US`);
-
-	return response;
+	return await finnhub(`/search?q=${query}&exchange=US`);
 };
