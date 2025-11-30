@@ -3,11 +3,16 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "format": "prettier . --write"
+        "format": "prettier . --write",
+        "backend:dev": "cd packages/backend && yarn dev",
+        "frontend:dev": "cd packages/frontend && yarn dev",
+        "etf-scraper:dev": "cd packages/etf-scraper && python app.py",
+        "dev": "concurrently \"yarn backend:dev\" \"yarn frontend:dev\" \"yarn etf-scraper:dev\""
     },
     "author": "",
     "license": "ISC",
     "devDependencies": {
+        "concurrently": "^9.2.1",
         "prettier": "^3.3.3"
     }
 }
