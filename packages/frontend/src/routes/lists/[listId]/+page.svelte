@@ -12,6 +12,7 @@
 	let analysis: ListAnalysis | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let showAllHoldings = $state(false);
 
 	const fetchListDetail = async () => {
 		loading = true;
@@ -81,6 +82,15 @@
 
 	const handleBack = () => {
 		goto("/lists");
+	};
+
+	const getDisplayedHoldings = () => {
+		if (!analysis?.holdings) return [];
+		return showAllHoldings ? analysis.holdings : analysis.holdings.slice(0, 15);
+	};
+
+	const hasMoreHoldings = () => {
+		return (analysis?.holdings?.length || 0) > 15;
 	};
 </script>
 
@@ -167,7 +177,7 @@
 						</thead>
 						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 							{#if analysis?.holdings?.length}
-								{#each analysis.holdings as holding}
+								{#each getDisplayedHoldings() as holding}
 									<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
 										<td
 											class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
@@ -203,6 +213,17 @@
 						</tbody>
 					</table>
 				</div>
+
+				{#if hasMoreHoldings()}
+					<div class="mt-4 flex justify-center">
+						<Button
+							variant="outline"
+							onclick={() => (showAllHoldings = !showAllHoldings)}
+						>
+							{showAllHoldings ? "Show Less" : `View All (${analysis?.holdings?.length || 0} total)`}
+						</Button>
+					</div>
+				{/if}
 
 				{#if analysis?.failedTickers?.length}
 					<div
