@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { get } from "svelte/store";
-	import { page } from "$app/stores";
+	import { toast } from "svelte-sonner";
+	import { ArrowLeft, RefreshCw } from "@lucide/svelte";
+	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
 	import type { List, ListAnalysis, ListDetail } from "$lib/types";
-	import { toast } from "svelte-sonner";
-	import { ArrowLeft, RefreshCw } from "@lucide/svelte";
 
 	let list: List | null = $state(null);
 	let analysis: ListAnalysis | null = $state(null);
@@ -18,7 +17,7 @@
 		loading = true;
 		error = null;
 
-		const { listId } = get(page).params;
+		const { listId } = page.params;
 
 		if (!listId) {
 			error = "List id is missing from the URL.";
@@ -88,7 +87,11 @@
 <div class="container mx-auto max-w-5xl px-4 py-8">
 	<div class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 		<div>
-			<Button variant="ghost" class="gap-2 px-0 text-zinc-600 dark:text-zinc-300" onclick={handleBack}>
+			<Button
+				variant="ghost"
+				class="gap-2 px-0 text-zinc-600 dark:text-zinc-300"
+				onclick={handleBack}
+			>
 				<ArrowLeft class="size-4" />
 				Back to Lists
 			</Button>
@@ -108,7 +111,9 @@
 	</div>
 
 	{#if loading}
-		<div class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+		<div
+			class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
+		>
 			<p class="text-sm text-zinc-600 dark:text-zinc-400">Crunching numbers...</p>
 		</div>
 	{:else if error}
@@ -116,15 +121,21 @@
 			class="rounded-lg border border-red-200 bg-red-50 p-6 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100"
 		>
 			<p class="text-sm">{error}</p>
-			<Button variant="outline" size="sm" class="mt-4" onclick={fetchListDetail}>Try again</Button>
+			<Button variant="outline" size="sm" class="mt-4" onclick={fetchListDetail}
+				>Try again</Button
+			>
 		</div>
 	{:else if !list}
-		<div class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+		<div
+			class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
+		>
 			<p class="text-sm text-zinc-600 dark:text-zinc-400">This list could not be found.</p>
 		</div>
 	{:else}
 		<div class="space-y-6">
-			<div class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+			<div
+				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+			>
 				<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
 					<div>
 						<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -144,8 +155,11 @@
 				<div class="mt-4 overflow-x-auto">
 					<table class="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
 						<thead>
-							<tr class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+							<tr
+								class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+							>
 								<th class="px-4 py-2">Symbol</th>
+								<th class="px-4 py-2">Name</th>
 								<th class="px-4 py-2">Total Shares</th>
 								<th class="px-4 py-2">Direct Shares</th>
 								<th class="px-4 py-2">Via ETFs</th>
@@ -155,8 +169,13 @@
 							{#if analysis?.holdings?.length}
 								{#each analysis.holdings as holding}
 									<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
-										<td class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100">
+										<td
+											class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
+										>
 											{holding.symbol}
+										</td>
+										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+											{holding.name || "-"}
 										</td>
 										<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
 											{formatShares(holding.totalShares)}
@@ -173,7 +192,10 @@
 								{/each}
 							{:else}
 								<tr>
-									<td class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400" colspan="4">
+									<td
+										class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400"
+										colspan="5"
+									>
 										No effective stock exposure calculated yet.
 									</td>
 								</tr>
@@ -186,7 +208,7 @@
 					<div
 						class="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
 					>
-						Some ETFs could not be decomposed due to API limits: {analysis.failedTickers.join(", ")}
+						Some ETFs could not be decomposed: {analysis.failedTickers.join(", ")}
 					</div>
 				{/if}
 
@@ -197,15 +219,21 @@
 				{/if}
 			</div>
 
-			<div class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-				<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Original Holdings</h2>
+			<div
+				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+			>
+				<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+					Original Holdings
+				</h2>
 				<p class="text-sm text-zinc-500 dark:text-zinc-400">
 					These are the raw inputs stored on the list before any ETF decomposition.
 				</p>
 				<div class="mt-4 overflow-x-auto">
 					<table class="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
 						<thead>
-							<tr class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+							<tr
+								class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+							>
 								<th class="px-4 py-2">Ticker</th>
 								<th class="px-4 py-2">Shares</th>
 							</tr>
@@ -213,12 +241,20 @@
 						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
 							{#each Object.entries(list.content || {}) as [ticker, shares]}
 								<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
-									<td class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100">{ticker}</td>
-									<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">{formatShares(shares)}</td>
+									<td
+										class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
+										>{ticker}</td
+									>
+									<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300"
+										>{formatShares(shares)}</td
+									>
 								</tr>
 							{:else}
 								<tr>
-									<td class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400" colspan="2">
+									<td
+										class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400"
+										colspan="2"
+									>
 										This list has no holdings yet.
 									</td>
 								</tr>
