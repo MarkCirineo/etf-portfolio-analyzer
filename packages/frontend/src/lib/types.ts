@@ -27,6 +27,7 @@ export type AggregatedHolding = {
 	totalShares: number;
 	directShares: number;
 	viaEtfs: string[];
+	name?: string;
 };
 
 export type ListAnalysis = {
