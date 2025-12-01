@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { toast } from "svelte-sonner";
+	import { Plus, Calendar, Package } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { request } from "$lib/request";
 	import type { List } from "$lib/types";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import { Plus, Calendar, Package } from "@lucide/svelte";
-	import { toast } from "svelte-sonner";
 
 	let lists = $state<List[]>([]);
 	let loading = $state(true);

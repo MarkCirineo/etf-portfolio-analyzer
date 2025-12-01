@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { toast } from "svelte-sonner";
 	import SearchForm from "$lib/components/search-form/search-form.svelte";
 	import StockList from "$lib/components/stock-list/stock-list.svelte";
 	import { request } from "$lib/request";
 	import type { SearchItem } from "$lib/types";
-	import { toast } from "svelte-sonner";
 	import { goto } from "$app/navigation";
 
 	const list: SearchItem[] = $state([]);
