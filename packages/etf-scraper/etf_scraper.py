@@ -1,12 +1,12 @@
 """
 ETF Scraper module that fetches ETF holdings data from etf.com API.
 """
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import cloudscraper
 import json
 
 
-def get_etf_holdings(symbol: str) -> Dict[str, any]:
+def get_etf_holdings(symbol: str) -> Dict[str, Any]:
     """
     Fetch ETF holdings from etf.com API.
     
