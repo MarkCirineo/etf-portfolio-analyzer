@@ -58,9 +58,10 @@ async def get_holdings(symbol: str):
     Returns:
         JSON response with holdings array and failed status.
         Format: {
-            'holdings': [{'symbol': str, 'weight': float}, ...],
+            'holdings': [{'symbol': str, 'weight': float, 'name': str}, ...],
             'failed': bool
         }
+        Where 'weight' is a percentage value (0-100) and 'name' is the company/holding name.
     """
     if not symbol or not symbol.strip():
         raise HTTPException(status_code=400, detail="Symbol is required")

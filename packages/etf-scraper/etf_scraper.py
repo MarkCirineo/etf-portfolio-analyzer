@@ -16,9 +16,10 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
     Returns:
         Dictionary with 'holdings' list and 'failed' boolean.
         Format: {
-            'holdings': [{'symbol': str, 'weight': float}, ...],
+            'holdings': [{'symbol': str, 'weight': float, 'name': str}, ...],
             'failed': bool
         }
+        Where 'weight' is a percentage value (0-100) and 'name' is the company/holding name.
     """
     try:
         print(f"Fetching ETF holdings for {symbol} from etf.com API")
