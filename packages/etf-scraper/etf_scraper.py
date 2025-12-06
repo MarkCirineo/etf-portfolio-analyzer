@@ -1,9 +1,10 @@
 """
 ETF Scraper module that fetches ETF holdings data from etf.com API.
 """
-from typing import List, Dict, Optional, Any
+from typing import Dict, Any
 import cloudscraper
 import json
+import requests
 
 
 def get_etf_holdings(symbol: str) -> Dict[str, Any]:
@@ -37,8 +38,8 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         api_url = "https://api-prod.etf.com/v2/fund/fund-details"
         
         # API payload - try different queries to get all holdings
-        # First try "topHoldings" which might be limited
-        # Then try "allHoldings" if available
+        # First try "allHoldings" to get complete holdings list
+        # Then fallback to "topHoldings" if "allHoldings" is not available
         payloads = [
             {
                 "query": "allHoldings",  # Try to get all holdings first
@@ -77,7 +78,7 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
                 )
                 response.raise_for_status()
                 break  # Success, use this response
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 last_error = e
                 # If it fails, try next payload
                 if hasattr(e, 'response') and e.response is not None:
@@ -89,8 +90,8 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
                     print(f"Response status: {e.response.status_code}")
                     try:
                         print(f"Response body: {e.response.text[:500]}")
-                    except:
-                        pass
+                    except Exception as e2:
+                        print(f"Failed to read response body: {str(e2)}")
         
         if not response:
             # Determine error type from last error
