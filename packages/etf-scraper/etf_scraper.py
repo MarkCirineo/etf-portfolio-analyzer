@@ -65,6 +65,7 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         
         # Make POST request - try different queries
         response = None
+        last_error = None
         for payload in payloads:
             try:
                 print(f"Trying query: {payload['query']}")
@@ -77,6 +78,7 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
                 response.raise_for_status()
                 break  # Success, use this response
             except Exception as e:
+                last_error = e
                 # If it fails, try next payload
                 if hasattr(e, 'response') and e.response is not None:
                     if e.response.status_code == 400:
@@ -91,9 +93,21 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
                         pass
         
         if not response:
+            # Determine error type from last error
+            error_type = 'upstream_request_failed'
+            if last_error:
+                error_msg = str(last_error).lower()
+                if 'timeout' in error_msg or 'timed out' in error_msg:
+                    error_type = 'timeout_error'
+                elif hasattr(last_error, 'response') and last_error.response is not None:
+                    status = last_error.response.status_code
+                    if status == 502 or status == 504:
+                        error_type = 'gateway_error'
+            
             return {
                 'holdings': [],
-                'failed': True
+                'failed': True,
+                'error': error_type
             }
         
         # Parse response
@@ -104,7 +118,8 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
             print(f"Response text: {response.text[:500]}")
             return {
                 'holdings': [],
-                'failed': True
+                'failed': True,
+                'error': 'parse_error'
             }
         
         holdings = []
@@ -199,9 +214,19 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         
     except Exception as e:
         import traceback
-        print(f"Error fetching ETF holdings for {symbol}: {str(e)}")
+        error_message = str(e)
+        print(f"Error fetching ETF holdings for {symbol}: {error_message}")
         print(f"Traceback: {traceback.format_exc()}")
+        
+        # Detect timeout/gateway errors
+        error_type = 'transport_error'
+        if 'timeout' in error_message.lower() or 'timed out' in error_message.lower():
+            error_type = 'timeout_error'
+        elif '502' in error_message or '504' in error_message or 'gateway' in error_message.lower():
+            error_type = 'gateway_error'
+        
         return {
             'holdings': [],
-            'failed': True
+            'failed': True,
+            'error': error_type
         }

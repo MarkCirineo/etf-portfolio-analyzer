@@ -11,7 +11,7 @@ from etf_scraper import get_etf_holdings
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     port: int = 8000
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     # CORS allowed origins (comma-separated, or "*" for all)
     # Default allows localhost for development
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
@@ -62,12 +62,36 @@ async def get_holdings(symbol: str):
             'failed': bool
         }
         Where 'weight' is a percentage value (0-100) and 'name' is the company/holding name.
+        
+    Raises:
+        HTTPException: 400 if symbol is invalid, 5xx for upstream/parse errors
     """
     if not symbol or not symbol.strip():
         raise HTTPException(status_code=400, detail="Symbol is required")
     
     result = get_etf_holdings(symbol.strip().upper())
     
+    if result.get("failed") is True and result.get("error"):
+        error_type = result.get("error")
+        
+        if error_type == "timeout_error":
+            raise HTTPException(
+                status_code=504,
+                detail="Service timeout while fetching ETF holdings"
+            )
+        elif error_type == "gateway_error":
+            raise HTTPException(
+                status_code=502,
+                detail="Gateway error while fetching ETF holdings"
+            )
+        else:
+            # Generic transport/parse failures
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to fetch or parse ETF holdings"
+            )
+    
+    # Return 200 for valid holdings or legitimate "no holdings" business case
     return result
 
 
