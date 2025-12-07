@@ -18,9 +18,14 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         Dictionary with 'holdings' list and 'failed' boolean.
         Format: {
             'holdings': [{'symbol': str, 'weight': float, 'name': str}, ...],
-            'failed': bool
+            'failed': bool,
+            'error': str (optional)
         }
         Where 'weight' is a percentage value (0-100) and 'name' is the company/holding name.
+        The 'error' field is optional and only present when 'failed' is True or a partial
+        failure occurs. It contains a human-readable error message explaining why the request
+        failed (e.g., 'timeout_error', 'gateway_error', 'parse_error', 'transport_error',
+        'upstream_request_failed').
     """
     try:
         print(f"Fetching ETF holdings for {symbol} from etf.com API")
