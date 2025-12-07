@@ -3,7 +3,8 @@
     "version": "1.0.0",
     "type": "module",
     "scripts": {
-        "format": "prettier . --write",
+        "format": "cd packages/backend && yarn format && cd ../frontend && yarn format",
+        "lint": "cd packages/backend && yarn lint && cd ../frontend && yarn lint",
         "backend:dev": "cd packages/backend && yarn dev",
         "frontend:dev": "cd packages/frontend && yarn dev",
         "etf-scraper:dev": "cd packages/etf-scraper && python app.py",

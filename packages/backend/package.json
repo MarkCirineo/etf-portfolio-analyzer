@@ -6,7 +6,10 @@
 	"scripts": {
 		"dev": "nodemon -e ts --ignore src/**/*.ts --exec \"yarn serve\"",
 		"serve": "yarn build && node ./dist/index.js",
-		"build": "rollup --config"
+		"lint": "prettier --check .",
+		"format": "prettier --write .",
+		"build": "rollup --config",
+		"build:tsc": "tsc --noEmit"
 	},
 	"author": "",
 	"license": "MIT",
