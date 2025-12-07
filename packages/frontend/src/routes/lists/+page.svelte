@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { toast } from "svelte-sonner";
+	import { Plus, Calendar, Package } from "@lucide/svelte";
 	import { goto } from "$app/navigation";
 	import { request } from "$lib/request";
 	import type { List } from "$lib/types";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import { Plus, Calendar, Package } from "@lucide/svelte";
-	import { toast } from "svelte-sonner";
 
 	let lists = $state<List[]>([]);
 	let loading = $state(true);
@@ -106,14 +106,10 @@
 					class="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-6 transition-all hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
 					role="button"
 					tabindex="0"
-					onclick={() => {
-						// Future: navigate to list detail page
-						// goto(`/lists/${list.id}`);
-					}}
+					onclick={() => goto(`/lists/${list.id}`)}
 					onkeydown={(e) => {
 						if (e.key === "Enter" || e.key === " ") {
-							// Future: navigate to list detail page
-							// goto(`/lists/${list.id}`);
+							goto(`/lists/${list.id}`);
 						}
 					}}
 				>

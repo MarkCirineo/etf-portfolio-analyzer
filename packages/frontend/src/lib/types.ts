@@ -21,3 +21,23 @@ export type List = {
 	createdAt: string;
 	updatedAt: string;
 };
+
+export type AggregatedHolding = {
+	symbol: string;
+	totalShares: number;
+	directShares: number;
+	viaEtfs: string[];
+	name?: string;
+};
+
+export type ListAnalysis = {
+	holdings: AggregatedHolding[];
+	failedTickers: string[];
+	usedPlaceholders: string[];
+	generatedAt: string;
+};
+
+export type ListDetail = {
+	list: List;
+	analysis: ListAnalysis;
+};
