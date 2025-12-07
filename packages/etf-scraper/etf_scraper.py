@@ -208,7 +208,7 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         
         # If we didn't find holdings, print the response structure for debugging
         if not holdings:
-            print(f"Could not find holdings in API response. Response structure:")
+            print("Could not find holdings in API response. Response structure:")
             print(json.dumps(data, indent=2)[:1000])  # Print first 1000 chars
         
         print(f"Successfully extracted {len(holdings)} holdings for {symbol}")
