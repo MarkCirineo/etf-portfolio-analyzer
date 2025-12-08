@@ -59,11 +59,11 @@
 			const response = await request(`/list/${listId}`, { method: "GET" });
 			const body = await response.json().catch(() => ({}));
 
-			if (!response.ok || !body?.data?.list) {
+			if (!response.ok || !body?.data) {
 				throw new Error(body?.message ?? "Failed to load list");
 			}
 
-			hydrateFromList(body.data.list as List);
+			hydrateFromList(body.data as List);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
@@ -137,7 +137,7 @@
 			toast.success("List updated successfully");
 			setTimeout(() => {
 				goto(`/lists/${listId}`);
-			}, 800);
+			}, 500);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to update list";
 			saveError = message;
