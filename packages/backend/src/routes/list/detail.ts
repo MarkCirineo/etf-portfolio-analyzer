@@ -35,7 +35,7 @@ type FetchHoldingsResult = {
 
 const router = Router();
 
-router.get("/:publicId", async (req: Request, res: Response, next: NextFunction) => {
+router.get("/:publicId/analysis", async (req: Request, res: Response, next: NextFunction) => {
 	try {
 		const ownerId = resolveOwnerId(req);
 		const publicId = req.params.publicId?.trim();

@@ -27,7 +27,7 @@
 		}
 
 		try {
-			const response = await request(`/list/${listId}`, {
+			const response = await request(`/list/${listId}/analysis`, {
 				method: "GET"
 			});
 
@@ -84,13 +84,13 @@
 		goto("/lists");
 	};
 
-const handleEdit = () => {
-	if (!list?.id) {
-		return;
-	}
+    const handleEdit = () => {
+        if (!list?.id) {
+            return;
+        }
 
-	goto(`/lists/${list.id}/edit`);
-};
+        goto(`/lists/${list.id}/edit`);
+    };
 
 	const getDisplayedHoldings = () => {
 		if (!analysis?.holdings) return [];
