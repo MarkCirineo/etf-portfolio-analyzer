@@ -193,7 +193,7 @@
 	{:else}
 		<div class="space-y-6">
 			<SearchForm clickedItem={handleClicked} list={editableList} />
-			<StockList list={editableList} newlyAddedSymbol={newlyAddedSymbol} shares={shares} />
+			<StockList list={editableList} {newlyAddedSymbol} {shares} />
 			<div
 				class="space-y-2 rounded-md border border-dashed border-zinc-300 p-4 dark:border-zinc-700"
 			>
@@ -204,11 +204,7 @@
 					bind:value={listName}
 				/>
 				<div class="flex flex-col gap-2 sm:flex-row">
-					<Button
-						variant="outline"
-						class="w-full sm:w-40"
-						onclick={handleCancel}
-					>
+					<Button variant="outline" class="w-full sm:w-40" onclick={handleCancel}>
 						Cancel
 					</Button>
 					<Button

@@ -57,7 +57,7 @@
 
 <div class="navigation-container">
 	<button
-		class="navigation-trigger focus-visible:ring-ring bg-background hover:bg-accent fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-md border border-zinc-300 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 dark:border-zinc-700"
+		class="navigation-trigger fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-md border border-zinc-300 bg-background shadow-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-zinc-700"
 		onclick={toggleMenu}
 		aria-label="Open navigation menu"
 	>
@@ -84,7 +84,7 @@
 	<!-- Sidebar -->
 	<aside
 		class={cn(
-			"bg-background fixed left-0 top-0 z-50 h-full w-64 border-r border-zinc-200 shadow-lg transition-transform duration-300 ease-in-out dark:border-zinc-800",
+			"fixed left-0 top-0 z-50 h-full w-64 border-r border-zinc-200 bg-background shadow-lg transition-transform duration-300 ease-in-out dark:border-zinc-800",
 			isOpen ? "translate-x-0" : "-translate-x-full"
 		)}
 	>
@@ -95,7 +95,7 @@
 			>
 				<h2 class="text-lg font-semibold">Navigation</h2>
 				<button
-					class="hover:bg-accent rounded-md p-1 transition-colors"
+					class="rounded-md p-1 transition-colors hover:bg-accent"
 					onclick={closeMenu}
 					aria-label="Close navigation menu"
 				>

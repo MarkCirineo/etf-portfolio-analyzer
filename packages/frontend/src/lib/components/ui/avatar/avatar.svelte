@@ -16,7 +16,7 @@
 <AvatarPrimitive.Root
 	bind:ref
 	class={cn(
-		"bg-muted text-muted-foreground relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border/60",
+		"relative flex h-9 w-9 shrink-0 overflow-hidden rounded-full border border-border/60 bg-muted text-muted-foreground",
 		className
 	)}
 	{...restProps}

@@ -54,7 +54,7 @@
 
 <Popover.Root bind:open={accountMenuOpen}>
 	<Popover.Trigger
-		class="avatar-trigger focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-2"
+		class="avatar-trigger focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 		aria-label="Open account menu"
 	>
 		<Avatar.Root>
@@ -76,14 +76,14 @@
 	<Popover.Content sideOffset={14} align="end" class="account-popover w-72 p-0">
 		<div class="space-y-4 p-4">
 			<div class="space-y-1">
-				<p class="text-foreground text-sm font-medium">
+				<p class="text-sm font-medium text-foreground">
 					{#if auth.status === "authenticated" && auth.user}
 						{auth.user.username || auth.user.email}
 					{:else}
 						Account
 					{/if}
 				</p>
-				<p class="text-muted-foreground text-xs">
+				<p class="text-xs text-muted-foreground">
 					{#if auth.status === "authenticated" && auth.user}
 						{auth.user.email}
 					{:else if auth.status === "loading" || auth.status === "idle"}
@@ -100,7 +100,7 @@
 					<LogOut class="size-4" />
 				</Button>
 			{:else if auth.status === "loading" || auth.status === "idle"}
-				<div class="text-muted-foreground rounded-md border border-dashed p-3 text-sm">
+				<div class="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
 					Hang tight while we verify your session.
 				</div>
 			{:else}

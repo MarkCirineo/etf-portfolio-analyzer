@@ -16,7 +16,7 @@
 	<div class="w-full max-w-2xl space-y-8 text-center">
 		<div class="space-y-4">
 			<h1
-				class="text-4xl font-bold tracking-tight text-zinc-900 sm:text-5xl dark:text-zinc-100"
+				class="text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 sm:text-5xl"
 			>
 				ETF Portfolio Analyzer
 			</h1>

@@ -84,13 +84,13 @@
 		goto("/lists");
 	};
 
-    const handleEdit = () => {
-        if (!list?.id) {
-            return;
-        }
+	const handleEdit = () => {
+		if (!list?.id) {
+			return;
+		}
 
-        goto(`/lists/${list.id}/edit`);
-    };
+		goto(`/lists/${list.id}/edit`);
+	};
 
 	const getDisplayedHoldings = () => {
 		if (!analysis?.holdings) return [];
@@ -232,7 +232,9 @@
 							variant="outline"
 							onclick={() => (showAllHoldings = !showAllHoldings)}
 						>
-							{showAllHoldings ? "Show Less" : `View All (${analysis?.holdings?.length || 0} total)`}
+							{showAllHoldings
+								? "Show Less"
+								: `View All (${analysis?.holdings?.length || 0} total)`}
 						</Button>
 					</div>
 				{/if}
