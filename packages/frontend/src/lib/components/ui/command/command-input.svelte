@@ -28,7 +28,7 @@
 	<CommandPrimitive.Input
 		placeholder="Search..."
 		class={cn(
-			"placeholder:text-muted-foreground w-full rounded-md border bg-transparent py-2 pl-10 pr-4 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50",
+			"w-full rounded-md border bg-transparent py-2 pl-10 pr-4 text-sm shadow-sm placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		bind:ref

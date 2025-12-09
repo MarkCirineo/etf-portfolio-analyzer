@@ -240,7 +240,7 @@
 		>
 			{#if mode === "signup"}
 				<div class="space-y-2">
-					<label class="text-foreground text-sm font-medium" for={usernameId}
+					<label class="text-sm font-medium text-foreground" for={usernameId}
 						>Username</label
 					>
 					<Input
@@ -254,7 +254,7 @@
 				</div>
 			{/if}
 			<div class="space-y-2">
-				<label class="text-foreground text-sm font-medium" for={emailId}>Email</label>
+				<label class="text-sm font-medium text-foreground" for={emailId}>Email</label>
 				<Input
 					id={emailId}
 					type="email"
@@ -265,7 +265,7 @@
 				/>
 			</div>
 			<div class="space-y-2">
-				<label class="text-foreground text-sm font-medium" for={passwordId}>Password</label>
+				<label class="text-sm font-medium text-foreground" for={passwordId}>Password</label>
 				<Input
 					id={passwordId}
 					type="password"

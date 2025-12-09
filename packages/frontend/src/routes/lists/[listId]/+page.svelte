@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { toast } from "svelte-sonner";
-	import { ArrowLeft, RefreshCw } from "@lucide/svelte";
+	import { ArrowLeft, Pencil, RefreshCw } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
 	import { request } from "$lib/request";
@@ -27,7 +27,7 @@
 		}
 
 		try {
-			const response = await request(`/list/${listId}`, {
+			const response = await request(`/list/${listId}/analysis`, {
 				method: "GET"
 			});
 
@@ -84,6 +84,14 @@
 		goto("/lists");
 	};
 
+	const handleEdit = () => {
+		if (!list?.id) {
+			return;
+		}
+
+		goto(`/lists/${list.id}/edit`);
+	};
+
 	const getDisplayedHoldings = () => {
 		if (!analysis?.holdings) return [];
 		return showAllHoldings ? analysis.holdings : analysis.holdings.slice(0, 15);
@@ -113,6 +121,10 @@
 			</p>
 		</div>
 		<div class="flex gap-2">
+			<Button class="gap-2" onclick={handleEdit} disabled={!list}>
+				<Pencil class="size-4" />
+				Edit List
+			</Button>
 			<Button variant="outline" class="gap-2" onclick={fetchListDetail} disabled={loading}>
 				<RefreshCw class={`size-4 ${loading ? "animate-spin" : ""}`} />
 				Refresh
@@ -220,7 +232,9 @@
 							variant="outline"
 							onclick={() => (showAllHoldings = !showAllHoldings)}
 						>
-							{showAllHoldings ? "Show Less" : `View All (${analysis?.holdings?.length || 0} total)`}
+							{showAllHoldings
+								? "Show Less"
+								: `View All (${analysis?.holdings?.length || 0} total)`}
 						</Button>
 					</div>
 				{/if}
