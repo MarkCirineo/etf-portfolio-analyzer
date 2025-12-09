@@ -36,5 +36,8 @@
 	"dependencies": {
 		"@lucide/svelte": "^0.503.0",
 		"mode-watcher": "^1.0.7"
+	},
+	"resolutions": {
+		"svelte-check/**/picomatch": "^4.0.0"
 	}
 }
