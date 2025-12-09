@@ -4,6 +4,7 @@ import { HttpError } from "@utils/error";
 import logger from "@logger";
 import type { ListContent } from "@db/tables/List";
 import { etfScraper } from "@api/etf-scraper";
+import { fetchQuotes } from "@utils/quotes";
 import { resolveOwnerId } from "./_shared";
 
 type NormalizedEtfHolding = {
@@ -25,12 +26,19 @@ type ListAnalysis = {
 	failedTickers: string[];
 	generatedAt: string;
 	usedPlaceholders: string[];
+	quoteFailures: string[];
 };
 
 type FetchHoldingsResult = {
 	holdings: NormalizedEtfHolding[];
 	failed: boolean;
 	usedPlaceholder: boolean;
+};
+
+type EtfDecompositionInput = {
+	symbol: string;
+	shares: number;
+	holdings: NormalizedEtfHolding[];
 };
 
 const router = Router();
@@ -95,8 +103,11 @@ const analyzeList = async (content: ListContent): Promise<ListAnalysis> => {
 			name?: string;
 		}
 	>();
-	const failedTickers: string[] = [];
-	const placeholderTickers: string[] = [];
+	const failedTickers = new Set<string>();
+	const placeholderTickers = new Set<string>();
+	const quoteFailures = new Set<string>();
+	const etfInputs: EtfDecompositionInput[] = [];
+	const symbolsNeedingQuotes = new Set<string>();
 
 	const entries = Object.entries(content ?? {});
 
@@ -112,11 +123,11 @@ const analyzeList = async (content: ListContent): Promise<ListAnalysis> => {
 			const { holdings, failed, usedPlaceholder } = (await fetchEtfHoldings(ticker)) ?? {};
 
 			if (failed) {
-				failedTickers.push(ticker);
+				failedTickers.add(ticker);
 			}
 
 			if (usedPlaceholder) {
-				placeholderTickers.push(ticker);
+				placeholderTickers.add(ticker);
 			}
 
 			if (!holdings || holdings.length === 0) {
@@ -126,23 +137,54 @@ const analyzeList = async (content: ListContent): Promise<ListAnalysis> => {
 				return;
 			}
 
-			for (const holding of holdings) {
-				const effectiveShares = (shares * holding.weight) / 100;
+			etfInputs.push({
+				symbol: ticker,
+				shares,
+				holdings
+			});
 
-				if (!Number.isFinite(effectiveShares) || effectiveShares <= 0) {
+			symbolsNeedingQuotes.add(ticker);
+			holdings.forEach((holding) => symbolsNeedingQuotes.add(holding.symbol));
+		})
+	);
+
+	if (symbolsNeedingQuotes.size > 0) {
+		const quotes = await fetchQuotes(Array.from(symbolsNeedingQuotes));
+
+		for (const etf of etfInputs) {
+			const etfPrice = quotes.get(etf.symbol);
+
+			if (!isValidPrice(etfPrice)) {
+				failedTickers.add(etf.symbol);
+				quoteFailures.add(etf.symbol);
+				continue;
+			}
+
+			for (const holding of etf.holdings) {
+				const holdingPrice = quotes.get(holding.symbol);
+
+				if (!isValidPrice(holdingPrice)) {
+					quoteFailures.add(holding.symbol);
+					continue;
+				}
+
+				const capitalAllocation = etf.shares * etfPrice * (holding.weight / 100);
+				const derivedShares = capitalAllocation / holdingPrice;
+
+				if (!Number.isFinite(derivedShares) || derivedShares <= 0) {
 					continue;
 				}
 
 				const entry = getOrCreateAggregate(aggregated, holding.symbol);
-				entry.totalShares += effectiveShares;
-				entry.viaEtfs.add(ticker);
+				entry.totalShares += derivedShares;
+				entry.viaEtfs.add(etf.symbol);
 				// Preserve name if available (use first one we encounter)
 				if (holding.name && !entry.name) {
 					entry.name = holding.name;
 				}
 			}
-		})
-	);
+		}
+	}
 
 	const holdings = Array.from(aggregated.values())
 		.map((holding) => ({
@@ -156,8 +198,9 @@ const analyzeList = async (content: ListContent): Promise<ListAnalysis> => {
 
 	return {
 		holdings,
-		failedTickers: Array.from(new Set(failedTickers)),
-		usedPlaceholders: Array.from(new Set(placeholderTickers)),
+		failedTickers: Array.from(failedTickers),
+		usedPlaceholders: Array.from(placeholderTickers),
+		quoteFailures: Array.from(quoteFailures),
 		generatedAt: new Date().toISOString()
 	};
 };
@@ -291,6 +334,10 @@ const getOrCreateAggregate = (
 
 const roundToFourDecimals = (value: number) => {
 	return Math.round(value * 10000) / 10000;
+};
+
+const isValidPrice = (price: number | undefined): price is number => {
+	return typeof price === "number" && Number.isFinite(price) && price > 0;
 };
 
 export default router;

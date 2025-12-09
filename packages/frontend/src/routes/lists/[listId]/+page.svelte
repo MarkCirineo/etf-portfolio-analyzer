@@ -247,6 +247,15 @@
 					</div>
 				{/if}
 
+				{#if analysis?.quoteFailures?.length}
+					<div
+						class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
+					>
+						Live prices were unavailable for: {analysis.quoteFailures.join(", ")}. Exposure for
+						these tickers may be understated until quotes refresh.
+					</div>
+				{/if}
+
 				{#if analysis?.usedPlaceholders?.length}
 					<p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
 						Placeholder weights were used for: {analysis.usedPlaceholders.join(", ")}.
