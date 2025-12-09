@@ -24,6 +24,7 @@
 		"@types/jsonwebtoken": "^9.0.10",
 		"@types/morgan": "^1.9.9",
 		"@types/pg": "^8.15.6",
+		"prettier": "^3.7.4",
 		"rollup": "^4.40.0",
 		"tslib": "^2.8.1",
 		"typescript": "^5.8.3"
