@@ -42,3 +42,16 @@ export type ListDetail = {
 	list: List;
 	analysis: ListAnalysis;
 };
+
+export type QuoteJobProgress = {
+	processed: number;
+	total: number;
+	fastTrackLimit: number;
+};
+
+export type QuoteJobUpdate = {
+	jobId: string;
+	status: "pending" | "running" | "completed" | "failed";
+	progress: QuoteJobProgress;
+	analysis: ListAnalysis;
+};

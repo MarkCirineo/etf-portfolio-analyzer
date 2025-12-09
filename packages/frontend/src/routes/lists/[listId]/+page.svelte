@@ -1,18 +1,29 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
 	import { toast } from "svelte-sonner";
 	import { ArrowLeft, Pencil, RefreshCw } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
-	import { request } from "$lib/request";
+	import { API_BASE_URL, request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import type { List, ListAnalysis, ListDetail } from "$lib/types";
+	import type {
+		List,
+		ListAnalysis,
+		ListDetail,
+		QuoteJobProgress,
+		QuoteJobUpdate
+	} from "$lib/types";
 
 	let list: List | null = $state(null);
 	let analysis: ListAnalysis | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let showAllHoldings = $state(false);
+	let jobId = $state<string | null>(null);
+	let jobStatus = $state<QuoteJobUpdate["status"] | "idle">("idle");
+	let jobProgress = $state<QuoteJobProgress | null>(null);
+	let jobError = $state<string | null>(null);
+	let jobSource: EventSource | null = null;
 
 	const fetchListDetail = async () => {
 		loading = true;
@@ -44,6 +55,8 @@
 
 			list = body.data.list;
 			analysis = body.data.analysis;
+
+			await startStreamingJob(listId);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
@@ -53,8 +66,97 @@
 		}
 	};
 
+	const startStreamingJob = async (listId: string) => {
+		cleanupJobStream();
+		jobStatus = "pending";
+		jobProgress = null;
+		jobError = null;
+		jobId = null;
+
+		try {
+			const response = await request(`/list/${listId}/analysis/jobs`, {
+				method: "POST"
+			});
+
+			if (!response.ok) {
+				const body = await response.json().catch(() => ({}));
+				throw new Error(body?.message ?? "Failed to start live quote job");
+			}
+
+			const body = (await response.json()) as { data?: QuoteJobUpdate };
+
+			if (!body?.data?.jobId) {
+				throw new Error("Job response was missing the job id");
+			}
+
+			jobId = body.data.jobId;
+			jobStatus = body.data.status;
+			jobProgress = body.data.progress;
+			if (body.data.analysis) {
+				analysis = body.data.analysis;
+			}
+
+			openJobStream(listId, jobId);
+		} catch (err) {
+			const message =
+				err instanceof Error ? err.message : "Failed to start streaming analysis";
+			jobError = message;
+			toast.error(message);
+		}
+	};
+
+	const openJobStream = (listId: string, currentJobId: string) => {
+		if (!API_BASE_URL) {
+			jobError = "API base URL is not configured.";
+			return;
+		}
+
+		const url = `${API_BASE_URL}/list/${listId}/analysis/jobs/${currentJobId}/stream`;
+
+		const source = new EventSource(url, {
+			withCredentials: true
+		});
+
+		jobSource = source;
+
+		source.onopen = () => {
+			jobError = null;
+		};
+
+		source.onmessage = (event: MessageEvent<string>) => {
+			try {
+				const payload = JSON.parse(event.data) as QuoteJobUpdate;
+				jobStatus = payload.status;
+				jobProgress = payload.progress;
+				analysis = payload.analysis;
+
+				if (payload.status === "completed" || payload.status === "failed") {
+					source.close();
+					jobSource = null;
+				}
+			} catch (parseError) {
+				console.error("Failed to parse job update", parseError);
+			}
+		};
+
+		source.onerror = () => {
+			jobError = "Lost connection to live pricing updates.";
+			source.close();
+			jobSource = null;
+		};
+	};
+
+	const cleanupJobStream = () => {
+		jobSource?.close();
+		jobSource = null;
+	};
+
 	onMount(() => {
 		fetchListDetail();
+	});
+
+	onDestroy(() => {
+		cleanupJobStream();
 	});
 
 	const formatDate = (value?: string) => {
@@ -168,6 +270,19 @@
 								? `Generated ${formatDate(analysis.generatedAt)}`
 								: "No analysis has been generated yet"}
 						</p>
+						{#if jobError}
+							<p class="text-sm text-red-500 dark:text-red-300">{jobError}</p>
+						{:else if jobProgress}
+							<p class="text-sm text-zinc-500 dark:text-zinc-400">
+								{jobStatus === "completed"
+									? "Live pricing complete"
+									: `Streaming quotes (${jobProgress.processed}/${jobProgress.total})`}
+							</p>
+						{:else if jobStatus !== "idle"}
+							<p class="text-sm text-zinc-500 dark:text-zinc-400">
+								Waiting for live pricing data...
+							</p>
+						{/if}
 					</div>
 					<div class="text-sm text-zinc-500 dark:text-zinc-400">
 						{analysis?.holdings?.length || 0} symbols
