@@ -1,0 +1,10 @@
+# Build outputs
+dist/
+node_modules/
+
+# Logs
+logs/
+
+# Config files
+config.ts
+
