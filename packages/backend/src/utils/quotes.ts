@@ -1,6 +1,5 @@
-import config from "@config";
+import { finnhubQuote } from "@api/finnhub";
 import logger from "@logger";
-import { HttpError } from "@utils/error";
 
 type QuoteCacheEntry = {
 	price: number;
@@ -12,7 +11,6 @@ type FinnhubQuoteResponse = {
 	pc?: number; // Previous close
 };
 
-const FINNHUB_BASE_URL = "https://finnhub.io/api/v1";
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_BATCH_SIZE = 20;
 const MAX_RETRIES = 3;
@@ -33,33 +31,21 @@ const isCacheFresh = (entry: QuoteCacheEntry | undefined) => {
 	return Date.now() - entry.fetchedAt < CACHE_TTL_MS;
 };
 
-const ensureFinnhubKey = () => {
-	if (!config.finnhub_api_key) {
-		throw new HttpError("Finnhub API key is not configured", 503);
-	}
-};
-
 const fetchQuoteFromFinnhub = async (symbol: string): Promise<number | null> => {
-	ensureFinnhubKey();
-
-	const url = `${FINNHUB_BASE_URL}/quote?symbol=${encodeURIComponent(symbol)}`;
 	let lastError: string | undefined;
 
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
 		try {
-			const response = await fetch(url, {
-				headers: {
-					"Content-Type": "application/json",
-					"X-Finnhub-Token": config.finnhub_api_key
-				}
-			});
+			const response = await finnhubQuote(symbol);
 
 			if (response.status === 429) {
 				const retryAfter = Number(response.headers.get("retry-after"));
 				const delay = Number.isFinite(retryAfter)
 					? retryAfter * 1000
 					: BASE_RETRY_DELAY_MS * (attempt + 1);
-				logger.warn(`[quotes] Finnhub rate limit hit while fetching ${symbol}, retrying...`);
+				logger.warn(
+					`[quotes] Finnhub rate limit hit while fetching ${symbol}, retrying...`
+				);
 				await sleep(delay);
 				continue;
 			}
