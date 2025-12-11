@@ -2,8 +2,10 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import db from "@db";
 import { HttpError } from "@utils/error";
 import logger from "@logger";
-import { analyzeList } from "@services/list-analysis";
+import { startQuoteJob } from "@services/quote-jobs";
 import { resolveOwnerId } from "./_shared";
+
+const INITIAL_HOLDING_LIMIT = 30;
 
 const router = Router();
 
@@ -34,12 +36,24 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 			throw new HttpError("List not found", 404);
 		}
 
-		const analysis = await analyzeList(list.content);
+		const job = await startQuoteJob({
+			ownerId,
+			listPublicId: list.id,
+			content: list.content,
+			initialHoldingLimit: INITIAL_HOLDING_LIMIT
+		});
+
+		const analysis = job.snapshot.analysis;
 
 		res.status(200).send({
 			data: {
 				list,
-				analysis
+				analysis,
+				job: {
+					id: job.jobId,
+					status: job.snapshot.status,
+					progress: job.snapshot.progress
+				}
 			}
 		});
 	} catch (error) {

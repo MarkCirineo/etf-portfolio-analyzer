@@ -1,3 +1,5 @@
+import http from "node:http";
+
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
@@ -8,9 +10,11 @@ import config from "@config";
 import logger from "@logger";
 import router from "@routes";
 import { errorHandler } from "@utils/error";
+import { initSocketServer } from "@services/socket";
 
 const app = express();
 const PORT = config.PORT || 3000;
+const server = http.createServer(app);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -34,6 +38,8 @@ app.use(
 app.use(router);
 app.use(errorHandler);
 
-app.listen(PORT, () => {
+initSocketServer(server);
+
+server.listen(PORT, () => {
 	logger.info(`Server is running on port ${PORT}`);
 });

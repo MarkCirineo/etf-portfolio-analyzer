@@ -82,6 +82,12 @@ type StartQuoteJobParams = {
 	ownerId: number;
 	listPublicId: string;
 	content: ListContent;
+	initialHoldingLimit?: number;
+};
+
+export type QuoteJobStartResult = {
+	jobId: string;
+	snapshot: QuoteJobPayload;
 };
 
 const jobs = new Map<string, QuoteJob>();
@@ -93,21 +99,9 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const startQuoteJob = async (
 	params: StartQuoteJobParams
-): Promise<QuoteJobPayload | undefined> => {
+): Promise<QuoteJobStartResult> => {
 	const jobKey = getJobKey(params.ownerId, params.listPublicId);
-	const existingJobId = jobKeyIndex.get(jobKey);
-
-	let staleJobId: string | undefined;
-
-	if (existingJobId) {
-		const existing = jobs.get(existingJobId);
-
-		if (existing && (existing.status === "pending" || existing.status === "running")) {
-			return existing.lastPayload;
-		}
-
-		staleJobId = existingJobId;
-	}
+	disposeJob(jobKeyIndex.get(jobKey));
 
 	const job: QuoteJob = {
 		id: randomUUID(),
@@ -127,17 +121,11 @@ export const startQuoteJob = async (
 		updatedAt: Date.now()
 	};
 
-	if (staleJobId) {
-		const staleJob = jobs.get(staleJobId);
-		staleJob?.eventEmitter.removeAllListeners();
-		jobs.delete(staleJobId);
-	}
-
 	jobs.set(job.id, job);
 	jobKeyIndex.set(jobKey, job.id);
 
 	try {
-		await initializeJob(job, params.content);
+		await initializeJob(job, params.content, params.initialHoldingLimit ?? 0);
 	} catch (error) {
 		job.status = "failed";
 		job.quoteFailures.add("internal");
@@ -147,11 +135,18 @@ export const startQuoteJob = async (
 		throw error;
 	}
 
-	return job.lastPayload;
-};
+	if (!job.lastPayload) {
+		emitJobUpdate(job);
+	}
 
-export const getQuoteJobPayload = (jobId: string): QuoteJobPayload | undefined => {
-	return jobs.get(jobId)?.lastPayload;
+	if (!job.lastPayload) {
+		throw new Error("Failed to initialize quote job");
+	}
+
+	return {
+		jobId: job.id,
+		snapshot: job.lastPayload
+	};
 };
 
 export const assertJobOwnership = (
@@ -192,7 +187,11 @@ export const subscribeToQuoteJob = (
 	};
 };
 
-const initializeJob = async (job: QuoteJob, content: ListContent) => {
+const initializeJob = async (
+	job: QuoteJob,
+	content: ListContent,
+	initialHoldingLimit: number
+) => {
 	const plan = await collectDecompositionPlan(content);
 
 	job.aggregated = plan.aggregated;
@@ -250,6 +249,7 @@ const initializeJob = async (job: QuoteJob, content: ListContent) => {
 	job.tasks = prioritizeTasks(tasks);
 	job.totalTasks = job.tasks.length;
 	job.status = "running";
+	await processInitialHoldings(job, initialHoldingLimit);
 	emitJobUpdate(job);
 
 	processTaskQueue(job);
@@ -266,6 +266,28 @@ const prioritizeTasks = (tasks: QuoteTask[]): QuoteTask[] => {
 
 		return b.score - a.score;
 	});
+};
+
+const processInitialHoldings = async (job: QuoteJob, limit: number) => {
+	if (limit <= 0) {
+		return;
+	}
+
+	while (job.tasks.length > 0 && countAggregatedHoldings(job) < limit) {
+		const task = job.tasks.shift();
+
+		if (!task) {
+			break;
+		}
+
+		await executeTask(job, task);
+		job.processedTasks += 1;
+		job.updatedAt = Date.now();
+	}
+};
+
+const countAggregatedHoldings = (job: QuoteJob) => {
+	return job.aggregated.size;
 };
 
 const processTaskQueue = (job: QuoteJob) => {
@@ -428,13 +450,31 @@ const scheduleCleanup = (job: QuoteJob) => {
 	}
 
 	job.timeoutHandle = setTimeout(() => {
-		jobs.delete(job.id);
-		jobKeyIndex.delete(getJobKey(job.ownerId, job.listPublicId));
-		job.eventEmitter.removeAllListeners();
+		disposeJob(job.id);
 	}, JOB_TTL_MS);
 };
 
 const getJobKey = (ownerId: number, listPublicId: string) => `${ownerId}:${listPublicId}`;
+
+const disposeJob = (jobId?: string) => {
+	if (!jobId) {
+		return;
+	}
+
+	const job = jobs.get(jobId);
+
+	if (!job) {
+		return;
+	}
+
+	if (job.timeoutHandle) {
+		clearTimeout(job.timeoutHandle);
+	}
+
+	job.eventEmitter.removeAllListeners();
+	jobs.delete(jobId);
+	jobKeyIndex.delete(getJobKey(job.ownerId, job.listPublicId));
+};
 
 const loggerError = (job: QuoteJob, error: unknown) => {
 	// Lazy import to avoid circular dependency

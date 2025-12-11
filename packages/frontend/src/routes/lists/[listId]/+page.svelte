@@ -4,6 +4,8 @@
 	import { ArrowLeft, Pencil, RefreshCw } from "@lucide/svelte";
 	import { page } from "$app/state";
 	import { goto } from "$app/navigation";
+	import { io, type Socket } from "socket.io-client";
+
 	import { API_BASE_URL, request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
 	import type {
@@ -11,6 +13,7 @@
 		ListAnalysis,
 		ListDetail,
 		QuoteJobProgress,
+		QuoteJobSummary,
 		QuoteJobUpdate
 	} from "$lib/types";
 
@@ -19,11 +22,105 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let showAllHoldings = $state(false);
-	let jobId = $state<string | null>(null);
-	let jobStatus = $state<QuoteJobUpdate["status"] | "idle">("idle");
+    let jobId = $state<string | null>(null);
+    let jobStatus = $state<QuoteJobUpdate["status"] | "idle">("idle");
 	let jobProgress = $state<QuoteJobProgress | null>(null);
 	let jobError = $state<string | null>(null);
-	let jobSource: EventSource | null = null;
+    let socket: Socket | null = null;
+    let activeJobId: string | null = null;
+
+    const clearJobState = () => {
+        jobId = null;
+        jobStatus = "idle";
+        jobProgress = null;
+        jobError = null;
+    };
+
+    const leaveActiveJob = () => {
+        if (socket && activeJobId) {
+            socket.emit("job:unsubscribe", { jobId: activeJobId });
+            activeJobId = null;
+        }
+    };
+
+    const disconnectSocket = () => {
+        leaveActiveJob();
+        socket?.disconnect();
+        socket = null;
+    };
+
+    const ensureSocket = () => {
+        if (socket) {
+            return socket;
+        }
+
+        if (!API_BASE_URL) {
+            jobError = "API base URL is not configured.";
+            return null;
+        }
+
+        socket = io(API_BASE_URL, {
+            withCredentials: true
+        });
+
+        socket.on("connect_error", (err) => {
+            jobError = err?.message || "Unable to connect to live pricing updates.";
+        });
+
+        socket.on("job:update", (payload: QuoteJobUpdate) => {
+            if (activeJobId && payload.jobId !== activeJobId) {
+                return;
+            }
+
+            jobStatus = payload.status;
+            jobProgress = payload.progress;
+            analysis = payload.analysis;
+
+            if (payload.status === "completed") {
+                jobError = null;
+            }
+        });
+
+        socket.on("job:error", ({ message }: { message?: string }) => {
+            jobError = message ?? "Live pricing error.";
+        });
+
+        socket.on("job:subscribed", ({ jobId: subscribedId }: { jobId: string }) => {
+            if (subscribedId === activeJobId) {
+                jobError = null;
+            }
+        });
+
+        return socket;
+    };
+
+    const subscribeToJob = (jobSummary?: QuoteJobSummary) => {
+        if (!jobSummary) {
+            return;
+        }
+
+        const { listId } = page.params;
+
+        if (!listId) {
+            return;
+        }
+
+        const client = ensureSocket();
+
+        if (!client) {
+            return;
+        }
+
+        if (activeJobId && jobSummary.id !== activeJobId) {
+            leaveActiveJob();
+        }
+
+        activeJobId = jobSummary.id;
+        jobId = jobSummary.id;
+        jobStatus = jobSummary.status;
+        jobProgress = jobSummary.progress;
+        client.emit("job:subscribe", { jobId: jobSummary.id, listId });
+    };
 
 	const fetchListDetail = async () => {
 		loading = true;
@@ -38,6 +135,9 @@
 		}
 
 		try {
+			leaveActiveJob();
+			clearJobState();
+
 			const response = await request(`/list/${listId}/analysis`, {
 				method: "GET"
 			});
@@ -55,8 +155,7 @@
 
 			list = body.data.list;
 			analysis = body.data.analysis;
-
-			await startStreamingJob(listId);
+			subscribeToJob(body.data.job);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
@@ -66,97 +165,12 @@
 		}
 	};
 
-	const startStreamingJob = async (listId: string) => {
-		cleanupJobStream();
-		jobStatus = "pending";
-		jobProgress = null;
-		jobError = null;
-		jobId = null;
-
-		try {
-			const response = await request(`/list/${listId}/analysis/jobs`, {
-				method: "POST"
-			});
-
-			if (!response.ok) {
-				const body = await response.json().catch(() => ({}));
-				throw new Error(body?.message ?? "Failed to start live quote job");
-			}
-
-			const body = (await response.json()) as { data?: QuoteJobUpdate };
-
-			if (!body?.data?.jobId) {
-				throw new Error("Job response was missing the job id");
-			}
-
-			jobId = body.data.jobId;
-			jobStatus = body.data.status;
-			jobProgress = body.data.progress;
-			if (body.data.analysis) {
-				analysis = body.data.analysis;
-			}
-
-			openJobStream(listId, jobId);
-		} catch (err) {
-			const message =
-				err instanceof Error ? err.message : "Failed to start streaming analysis";
-			jobError = message;
-			toast.error(message);
-		}
-	};
-
-	const openJobStream = (listId: string, currentJobId: string) => {
-		if (!API_BASE_URL) {
-			jobError = "API base URL is not configured.";
-			return;
-		}
-
-		const url = `${API_BASE_URL}/list/${listId}/analysis/jobs/${currentJobId}/stream`;
-
-		const source = new EventSource(url, {
-			withCredentials: true
-		});
-
-		jobSource = source;
-
-		source.onopen = () => {
-			jobError = null;
-		};
-
-		source.onmessage = (event: MessageEvent<string>) => {
-			try {
-				const payload = JSON.parse(event.data) as QuoteJobUpdate;
-				jobStatus = payload.status;
-				jobProgress = payload.progress;
-				analysis = payload.analysis;
-
-				if (payload.status === "completed" || payload.status === "failed") {
-					source.close();
-					jobSource = null;
-				}
-			} catch (parseError) {
-				console.error("Failed to parse job update", parseError);
-			}
-		};
-
-		source.onerror = () => {
-			jobError = "Lost connection to live pricing updates.";
-			source.close();
-			jobSource = null;
-		};
-	};
-
-	const cleanupJobStream = () => {
-		jobSource?.close();
-		jobSource = null;
-	};
-
 	onMount(() => {
 		fetchListDetail();
 	});
 
 	onDestroy(() => {
-		cleanupJobStream();
+		disconnectSocket();
 	});
 
 	const formatDate = (value?: string) => {
@@ -276,8 +290,28 @@
 							<p class="text-sm text-zinc-500 dark:text-zinc-400">
 								{jobStatus === "completed"
 									? "Live pricing complete"
-									: `Streaming quotes (${jobProgress.processed}/${jobProgress.total})`}
+									: jobStatus === "failed"
+										? "Live pricing failed"
+										: `Streaming quotes (${jobProgress.processed}/${jobProgress.total})`}
 							</p>
+							<div class="mt-2">
+								<div
+									class="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800"
+									aria-hidden="true"
+								>
+									<div
+										class={`h-full rounded-full ${
+											jobStatus === "failed" ? "bg-red-500" : "bg-blue-500"
+										}`}
+										style={`width: ${
+											Math.min(
+												100,
+												(jobProgress.processed / Math.max(jobProgress.total || 1, 1)) * 100
+											) || 0
+										}%`}
+									></div>
+								</div>
+							</div>
 						{:else if jobStatus !== "idle"}
 							<p class="text-sm text-zinc-500 dark:text-zinc-400">
 								Waiting for live pricing data...
