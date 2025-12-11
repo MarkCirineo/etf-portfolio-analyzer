@@ -12,5 +12,9 @@ export default {
 		password: "",
 		database: ""
 	},
+	redis: {
+		url: "",
+		keyPrefix: "epa:"
+	},
 	origin: ""
 };
