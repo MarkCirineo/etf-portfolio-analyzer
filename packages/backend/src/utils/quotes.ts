@@ -1,134 +1,35 @@
-import { finnhubQuote } from "@api/finnhub";
 import logger from "@logger";
+import { getCachedQuote, isQuoteFresh, type QuoteCacheEntry } from "@services/quote-cache";
+import { requestFreshQuote, scheduleQuoteFetch } from "@services/quote-queue";
 
-type QuoteCacheEntry = {
-	price: number;
-	fetchedAt: number;
+type QuoteSnapshot = {
+	symbol: string;
+	price: number | null;
+	updatedAt: number | null;
+	isFresh: boolean;
+	isUpdating: boolean;
 };
 
-type FinnhubQuoteResponse = {
-	c?: number; // Current price
-	pc?: number; // Previous close
-};
+export const fetchQuotes = async (
+	symbols: string[],
+	options?: { allowStale?: boolean }
+): Promise<Map<string, number>> => {
+	const snapshots = await getQuoteSnapshots(symbols, options);
+	const result = new Map<string, number>();
 
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_BATCH_SIZE = 20;
-const MAX_RETRIES = 3;
-const BASE_RETRY_DELAY_MS = 500;
-
-const quoteCache = new Map<string, QuoteCacheEntry>();
-const inflightQuotes = new Map<string, Promise<number | null>>();
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const normalizeSymbol = (symbol: string) => symbol.trim().toUpperCase();
-
-const isCacheFresh = (entry: QuoteCacheEntry | undefined) => {
-	if (!entry) {
-		return false;
-	}
-
-	return Date.now() - entry.fetchedAt < CACHE_TTL_MS;
-};
-
-const fetchQuoteFromFinnhub = async (symbol: string): Promise<number | null> => {
-	let lastError: string | undefined;
-
-	for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
-		try {
-			const response = await finnhubQuote(symbol);
-
-			if (response.status === 429) {
-				const retryAfter = Number(response.headers.get("retry-after"));
-				const delay = Number.isFinite(retryAfter)
-					? retryAfter * 1000
-					: BASE_RETRY_DELAY_MS * (attempt + 1);
-				logger.warn(
-					`[quotes] Finnhub rate limit hit while fetching ${symbol}, retrying...`
-				);
-				await sleep(delay);
-				continue;
-			}
-
-			if (!response.ok) {
-				const body = await response.text().catch(() => "");
-				lastError = `status ${response.status} - ${body?.slice(0, 120) ?? "unknown error"}`;
-				break;
-			}
-
-			const payload = (await response.json()) as FinnhubQuoteResponse;
-			const price = typeof payload?.c === "number" ? payload.c : undefined;
-
-			if (price && price > 0) {
-				return price;
-			}
-
-			const fallbackPrice =
-				typeof payload?.pc === "number" && payload.pc > 0 ? payload.pc : undefined;
-
-			if (fallbackPrice) {
-				logger.warn(
-					`[quotes] Using previous close for ${symbol} because current price was unavailable`
-				);
-				return fallbackPrice;
-			}
-
-			lastError = "empty price payload";
-			break;
-		} catch (error) {
-			lastError = error instanceof Error ? error.message : String(error);
-			await sleep(BASE_RETRY_DELAY_MS * (attempt + 1));
+	for (const snapshot of snapshots.values()) {
+		if (typeof snapshot.price === "number" && Number.isFinite(snapshot.price)) {
+			result.set(snapshot.symbol, snapshot.price);
 		}
 	}
 
-	if (lastError) {
-		logger.warn(`[quotes] Failed to fetch quote for ${symbol}: ${lastError}`);
-	}
-
-	return null;
+	return result;
 };
 
-const getQuote = async (symbol: string): Promise<number | null> => {
-	const normalized = normalizeSymbol(symbol);
-
-	if (!normalized) {
-		return null;
-	}
-
-	const cached = quoteCache.get(normalized);
-
-	if (isCacheFresh(cached)) {
-		return cached!.price;
-	}
-
-	const existing = inflightQuotes.get(normalized);
-
-	if (existing) {
-		return existing;
-	}
-
-	const request = fetchQuoteFromFinnhub(normalized)
-		.then((price) => {
-			if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-				quoteCache.set(normalized, {
-					price,
-					fetchedAt: Date.now()
-				});
-				return price;
-			}
-
-			return null;
-		})
-		.finally(() => {
-			inflightQuotes.delete(normalized);
-		});
-
-	inflightQuotes.set(normalized, request);
-
-	return request;
-};
-
-export const fetchQuotes = async (symbols: string[]): Promise<Map<string, number>> => {
+export const getQuoteSnapshots = async (
+	symbols: string[],
+	options?: { allowStale?: boolean }
+): Promise<Map<string, QuoteSnapshot>> => {
 	if (!symbols || symbols.length === 0) {
 		return new Map();
 	}
@@ -145,46 +46,78 @@ export const fetchQuotes = async (symbols: string[]): Promise<Map<string, number
 		return new Map();
 	}
 
-	const quotes = new Map<string, number>();
-	const symbolsNeedingFetch: string[] = [];
+	const result = new Map<string, QuoteSnapshot>();
+	const pendingFetches: Promise<void>[] = [];
 
 	for (const symbol of uniqueSymbols) {
-		const cached = quoteCache.get(symbol);
-
-		if (isCacheFresh(cached)) {
-			quotes.set(symbol, cached!.price);
-			continue;
-		}
-
-		symbolsNeedingFetch.push(symbol);
+		pendingFetches.push(
+			resolveSnapshot(symbol, options).then((snapshot) => {
+				result.set(symbol, snapshot);
+			})
+		);
 	}
 
-	if (symbolsNeedingFetch.length === 0) {
-		return quotes;
-	}
+	await Promise.all(pendingFetches);
 
-	const batches: string[][] = [];
-
-	for (let i = 0; i < symbolsNeedingFetch.length; i += MAX_BATCH_SIZE) {
-		batches.push(symbolsNeedingFetch.slice(i, i + MAX_BATCH_SIZE));
-	}
-
-	for (const batch of batches) {
-		const results = await Promise.all(batch.map((symbol) => getQuote(symbol)));
-
-		results.forEach((price, index) => {
-			const symbol = batch[index];
-
-			if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-				quotes.set(symbol, price);
-			}
-		});
-	}
-
-	return quotes;
+	return result;
 };
 
-export const clearQuoteCache = () => {
-	quoteCache.clear();
-	inflightQuotes.clear();
+const resolveSnapshot = async (
+	symbol: string,
+	options?: { allowStale?: boolean }
+): Promise<QuoteSnapshot> => {
+	const cached = await getCachedQuote(symbol);
+
+	if (cached && isQuoteFresh(cached)) {
+		return serializeSnapshot(symbol, cached, true, false);
+	}
+
+	if (cached && options?.allowStale) {
+		scheduleQuoteFetch(symbol);
+		return serializeSnapshot(symbol, cached, false, true);
+	}
+
+	const fetched = await requestFreshQuote(symbol);
+
+	if (fetched.success && typeof fetched.price === "number" && Number.isFinite(fetched.price)) {
+		return {
+			symbol,
+			price: fetched.price,
+			updatedAt: fetched.fetchedAt,
+			isFresh: true,
+			isUpdating: false
+		};
+	}
+
+	if (cached) {
+		logger.warn(
+			`[quotes] Falling back to cached price for ${symbol} after fetch failure (${fetched.error ?? "unknown error"})`
+		);
+		return serializeSnapshot(symbol, cached, false, false);
+	}
+
+	return {
+		symbol,
+		price: null,
+		updatedAt: null,
+		isFresh: false,
+		isUpdating: false
+	};
 };
+
+const serializeSnapshot = (
+	symbol: string,
+	entry: QuoteCacheEntry,
+	isFresh: boolean,
+	isUpdating: boolean
+): QuoteSnapshot => {
+	return {
+		symbol,
+		price: entry.price,
+		updatedAt: entry.updatedAt,
+		isFresh,
+		isUpdating
+	};
+};
+
+const normalizeSymbol = (symbol: string) => symbol?.trim().toUpperCase();

@@ -7,6 +7,7 @@ import config from "@config";
 import logger from "@logger";
 import { verifyToken } from "@routes/auth/_shared";
 import { subscribeToQuoteJob } from "@services/quote-jobs";
+import { subscribeToQuoteUpdates } from "@services/quote-cache";
 
 type AuthedSocket = Socket & {
 	data: {
@@ -17,6 +18,7 @@ type AuthedSocket = Socket & {
 };
 
 let io: SocketIOServer | null = null;
+let unsubscribeQuoteUpdates: (() => Promise<void>) | null = null;
 
 export const initSocketServer = (server: HttpServer) => {
 	io = new SocketIOServer(server, {
@@ -28,8 +30,29 @@ export const initSocketServer = (server: HttpServer) => {
 
 	io.use(authenticateSocket);
 	io.on("connection", registerSocketHandlers);
+	registerQuoteBroadcast();
 
 	logger.info("[socket] Socket.io server initialized");
+};
+
+const registerQuoteBroadcast = () => {
+	if (!io || unsubscribeQuoteUpdates) {
+		return;
+	}
+
+	void subscribeToQuoteUpdates((payload) => {
+		io?.emit("quote:update", payload);
+	})
+		.then((unsubscribe) => {
+			unsubscribeQuoteUpdates = unsubscribe;
+		})
+		.catch((error) => {
+			logger.error(
+				`[socket] Failed to subscribe to quote updates: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+		});
 };
 
 const authenticateSocket: Parameters<SocketIOServer["use"]>[0] = (socket, next) => {
@@ -68,9 +91,14 @@ const registerSocketHandlers = (socket: AuthedSocket) => {
 				return;
 			}
 
-			const unsubscribe = subscribeToQuoteJob(jobId, socket.data.userId, listId, (payload) => {
-				socket.emit("job:update", payload);
-			});
+			const unsubscribe = subscribeToQuoteJob(
+				jobId,
+				socket.data.userId,
+				listId,
+				(payload) => {
+					socket.emit("job:update", payload);
+				}
+			);
 
 			subscriptions.set(jobId, unsubscribe);
 			socket.emit("job:subscribed", { jobId });
