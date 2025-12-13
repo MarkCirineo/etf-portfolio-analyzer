@@ -53,12 +53,15 @@ export type DecompositionPlan = {
 	symbolsNeedingQuotes: Set<string>;
 };
 
-export const analyzeList = async (content: ListContent): Promise<ListAnalysis> => {
+export const analyzeList = async (
+	content: ListContent,
+	options?: { allowStale?: boolean }
+): Promise<ListAnalysis> => {
 	const plan = await collectDecompositionPlan(content);
 	const quoteFailures = new Set<string>();
 
 	if (plan.symbolsNeedingQuotes.size > 0) {
-		const quotes = await fetchQuotes(Array.from(plan.symbolsNeedingQuotes));
+		const quotes = await fetchQuotes(Array.from(plan.symbolsNeedingQuotes), options);
 
 		for (const etf of plan.etfInputs) {
 			const etfPrice = quotes.get(etf.symbol);
@@ -132,7 +135,9 @@ export const serializeAggregatedHoldings = (
 		.sort((a, b) => b.totalShares - a.totalShares);
 };
 
-export const collectDecompositionPlan = async (content: ListContent): Promise<DecompositionPlan> => {
+export const collectDecompositionPlan = async (
+	content: ListContent
+): Promise<DecompositionPlan> => {
 	const aggregated = new Map<string, AggregatedEntry>();
 	const failedTickers = new Set<string>();
 	const placeholderTickers = new Set<string>();

@@ -2,10 +2,8 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import db from "@db";
 import { HttpError } from "@utils/error";
 import logger from "@logger";
-import { startQuoteJob } from "@services/quote-jobs";
+import { analyzeList } from "@services/list-analysis";
 import { resolveOwnerId } from "./_shared";
-
-const INITIAL_HOLDING_LIMIT = 30;
 
 const router = Router();
 
@@ -36,24 +34,15 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 			throw new HttpError("List not found", 404);
 		}
 
-		const job = await startQuoteJob({
-			ownerId,
-			listPublicId: list.id,
-			content: list.content,
-			initialHoldingLimit: INITIAL_HOLDING_LIMIT
-		});
-
-		const analysis = job.snapshot.analysis;
+		// Analyze list with cached data, allowing stale data for immediate results
+		// Missing quotes will be queued and fetched via quote-queue
+		// Updates will be broadcast via quote-cache pub/sub → Socket.IO
+		const analysis = await analyzeList(list.content, { allowStale: true });
 
 		res.status(200).send({
 			data: {
 				list,
-				analysis,
-				job: {
-					id: job.jobId,
-					status: job.snapshot.status,
-					progress: job.snapshot.progress
-				}
+				analysis
 			}
 		});
 	} catch (error) {
@@ -69,6 +58,5 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 		next(new HttpError("Failed to fetch list detail", 500));
 	}
 });
-
 
 export default router;
