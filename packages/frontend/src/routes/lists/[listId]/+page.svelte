@@ -298,12 +298,6 @@
 						Exposure for these tickers may be understated until quotes refresh.
 					</div>
 				{/if}
-
-				{#if analysis?.usedPlaceholders?.length}
-					<p class="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-						Placeholder weights were used for: {analysis.usedPlaceholders.join(", ")}.
-					</p>
-				{/if}
 			</div>
 
 			<div

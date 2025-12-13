@@ -20,7 +20,6 @@ export type AggregatedHolding = {
 export type ListAnalysis = {
 	holdings: AggregatedHolding[];
 	failedTickers: string[];
-	usedPlaceholders: string[];
 	quoteFailures: string[];
 	generatedAt: string;
 };
@@ -28,7 +27,6 @@ export type ListAnalysis = {
 export type FetchHoldingsResult = {
 	holdings: NormalizedEtfHolding[];
 	failed: boolean;
-	usedPlaceholder: boolean;
 };
 
 export type AggregatedEntry = {
@@ -49,7 +47,6 @@ export type DecompositionPlan = {
 	aggregated: Map<string, AggregatedEntry>;
 	etfInputs: EtfDecompositionInput[];
 	failedTickers: Set<string>;
-	placeholderTickers: Set<string>;
 	symbolsNeedingQuotes: Set<string>;
 };
 
@@ -99,7 +96,6 @@ export const analyzeList = async (
 
 	return buildListAnalysis(plan.aggregated, {
 		failedTickers: plan.failedTickers,
-		placeholderTickers: plan.placeholderTickers,
 		quoteFailures
 	});
 };
@@ -108,14 +104,12 @@ export const buildListAnalysis = (
 	aggregated: Map<string, AggregatedEntry>,
 	metadata: {
 		failedTickers: Set<string>;
-		placeholderTickers: Set<string>;
 		quoteFailures: Set<string>;
 	}
 ): ListAnalysis => {
 	return {
 		holdings: serializeAggregatedHoldings(aggregated),
 		failedTickers: Array.from(metadata.failedTickers),
-		usedPlaceholders: Array.from(metadata.placeholderTickers),
 		quoteFailures: Array.from(metadata.quoteFailures),
 		generatedAt: new Date().toISOString()
 	};
@@ -140,7 +134,6 @@ export const collectDecompositionPlan = async (
 ): Promise<DecompositionPlan> => {
 	const aggregated = new Map<string, AggregatedEntry>();
 	const failedTickers = new Set<string>();
-	const placeholderTickers = new Set<string>();
 	const symbolsNeedingQuotes = new Set<string>();
 	const etfInputs: EtfDecompositionInput[] = [];
 
@@ -155,14 +148,10 @@ export const collectDecompositionPlan = async (
 				return;
 			}
 
-			const { holdings, failed, usedPlaceholder } = (await fetchEtfHoldings(ticker)) ?? {};
+			const { holdings, failed } = (await fetchEtfHoldings(ticker)) ?? {};
 
 			if (failed) {
 				failedTickers.add(ticker);
-			}
-
-			if (usedPlaceholder) {
-				placeholderTickers.add(ticker);
 			}
 
 			if (!holdings || holdings.length === 0) {
@@ -187,7 +176,6 @@ export const collectDecompositionPlan = async (
 		aggregated,
 		etfInputs,
 		failedTickers,
-		placeholderTickers,
 		symbolsNeedingQuotes
 	};
 };
@@ -202,8 +190,7 @@ export const fetchEtfHoldings = async (
 			logger.warn(`[list] Invalid response from ETF scraper for ${symbol}`);
 			return {
 				holdings: [],
-				failed: true,
-				usedPlaceholder: false
+				failed: true
 			};
 		}
 
@@ -212,8 +199,7 @@ export const fetchEtfHoldings = async (
 
 		return {
 			holdings: normalizedHoldings,
-			failed,
-			usedPlaceholder: false
+			failed
 		};
 	} catch (error) {
 		logger.warn(
@@ -223,8 +209,7 @@ export const fetchEtfHoldings = async (
 		);
 		return {
 			holdings: [],
-			failed: true,
-			usedPlaceholder: false
+			failed: true
 		};
 	}
 };
