@@ -8,119 +8,47 @@
 
 	import { API_BASE_URL, request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import type {
-		List,
-		ListAnalysis,
-		ListDetail,
-		QuoteJobProgress,
-		QuoteJobSummary,
-		QuoteJobUpdate
-	} from "$lib/types";
+	import type { List, ListAnalysis, ListDetail, QuoteBroadcastPayload } from "$lib/types";
 
 	let list: List | null = $state(null);
 	let analysis: ListAnalysis | null = $state(null);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let showAllHoldings = $state(false);
-    let jobId = $state<string | null>(null);
-    let jobStatus = $state<QuoteJobUpdate["status"] | "idle">("idle");
-	let jobProgress = $state<QuoteJobProgress | null>(null);
-	let jobError = $state<string | null>(null);
-    let socket: Socket | null = null;
-    let activeJobId: string | null = null;
+	let socket: Socket | null = null;
 
-    const clearJobState = () => {
-        jobId = null;
-        jobStatus = "idle";
-        jobProgress = null;
-        jobError = null;
-    };
+	const disconnectSocket = () => {
+		socket?.disconnect();
+		socket = null;
+	};
 
-    const leaveActiveJob = () => {
-        if (socket && activeJobId) {
-            socket.emit("job:unsubscribe", { jobId: activeJobId });
-            activeJobId = null;
-        }
-    };
+	const ensureSocket = () => {
+		if (socket) {
+			return socket;
+		}
 
-    const disconnectSocket = () => {
-        leaveActiveJob();
-        socket?.disconnect();
-        socket = null;
-    };
+		if (!API_BASE_URL) {
+			return null;
+		}
 
-    const ensureSocket = () => {
-        if (socket) {
-            return socket;
-        }
+		socket = io(API_BASE_URL, {
+			withCredentials: true
+		});
 
-        if (!API_BASE_URL) {
-            jobError = "API base URL is not configured.";
-            return null;
-        }
+		socket.on("connect_error", (err) => {
+			console.error(
+				"Socket connection error:",
+				err?.message || "Unable to connect to live pricing updates."
+			);
+		});
 
-        socket = io(API_BASE_URL, {
-            withCredentials: true
-        });
+		socket.on("quote:update", (payload: QuoteBroadcastPayload) => {
+			// TODO: Handle quote update
+			console.log("Quote updated:", payload);
+		});
 
-        socket.on("connect_error", (err) => {
-            jobError = err?.message || "Unable to connect to live pricing updates.";
-        });
-
-        socket.on("job:update", (payload: QuoteJobUpdate) => {
-            if (activeJobId && payload.jobId !== activeJobId) {
-                return;
-            }
-
-            jobStatus = payload.status;
-            jobProgress = payload.progress;
-            analysis = payload.analysis;
-
-            if (payload.status === "completed") {
-                jobError = null;
-            }
-        });
-
-        socket.on("job:error", ({ message }: { message?: string }) => {
-            jobError = message ?? "Live pricing error.";
-        });
-
-        socket.on("job:subscribed", ({ jobId: subscribedId }: { jobId: string }) => {
-            if (subscribedId === activeJobId) {
-                jobError = null;
-            }
-        });
-
-        return socket;
-    };
-
-    const subscribeToJob = (jobSummary?: QuoteJobSummary) => {
-        if (!jobSummary) {
-            return;
-        }
-
-        const { listId } = page.params;
-
-        if (!listId) {
-            return;
-        }
-
-        const client = ensureSocket();
-
-        if (!client) {
-            return;
-        }
-
-        if (activeJobId && jobSummary.id !== activeJobId) {
-            leaveActiveJob();
-        }
-
-        activeJobId = jobSummary.id;
-        jobId = jobSummary.id;
-        jobStatus = jobSummary.status;
-        jobProgress = jobSummary.progress;
-        client.emit("job:subscribe", { jobId: jobSummary.id, listId });
-    };
+		return socket;
+	};
 
 	const fetchListDetail = async () => {
 		loading = true;
@@ -135,9 +63,6 @@
 		}
 
 		try {
-			leaveActiveJob();
-			clearJobState();
-
 			const response = await request(`/list/${listId}/analysis`, {
 				method: "GET"
 			});
@@ -155,7 +80,9 @@
 
 			list = body.data.list;
 			analysis = body.data.analysis;
-			subscribeToJob(body.data.job);
+
+			// Ensure socket connection for quote updates
+			ensureSocket();
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
@@ -284,39 +211,6 @@
 								? `Generated ${formatDate(analysis.generatedAt)}`
 								: "No analysis has been generated yet"}
 						</p>
-						{#if jobError}
-							<p class="text-sm text-red-500 dark:text-red-300">{jobError}</p>
-						{:else if jobProgress}
-							<p class="text-sm text-zinc-500 dark:text-zinc-400">
-								{jobStatus === "completed"
-									? "Live pricing complete"
-									: jobStatus === "failed"
-										? "Live pricing failed"
-										: `Streaming quotes (${jobProgress.processed}/${jobProgress.total})`}
-							</p>
-							<div class="mt-2">
-								<div
-									class="h-2 rounded-full bg-zinc-200 dark:bg-zinc-800"
-									aria-hidden="true"
-								>
-									<div
-										class={`h-full rounded-full ${
-											jobStatus === "failed" ? "bg-red-500" : "bg-blue-500"
-										}`}
-										style={`width: ${
-											Math.min(
-												100,
-												(jobProgress.processed / Math.max(jobProgress.total || 1, 1)) * 100
-											) || 0
-										}%`}
-									></div>
-								</div>
-							</div>
-						{:else if jobStatus !== "idle"}
-							<p class="text-sm text-zinc-500 dark:text-zinc-400">
-								Waiting for live pricing data...
-							</p>
-						{/if}
 					</div>
 					<div class="text-sm text-zinc-500 dark:text-zinc-400">
 						{analysis?.holdings?.length || 0} symbols
@@ -400,8 +294,8 @@
 					<div
 						class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
 					>
-						Live prices were unavailable for: {analysis.quoteFailures.join(", ")}. Exposure for
-						these tickers may be understated until quotes refresh.
+						Live prices were unavailable for: {analysis.quoteFailures.join(", ")}.
+						Exposure for these tickers may be understated until quotes refresh.
 					</div>
 				{/if}
 
