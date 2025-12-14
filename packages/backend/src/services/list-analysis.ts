@@ -154,6 +154,7 @@ export const collectDecompositionPlan = async (
 				failedTickers.add(ticker);
 			}
 
+			// No holdings found, add shares as direct shares
 			if (!holdings || holdings.length === 0) {
 				const entry = getOrCreateAggregate(aggregated, ticker);
 				entry.totalShares += shares;
@@ -167,6 +168,7 @@ export const collectDecompositionPlan = async (
 				holdings
 			});
 
+			// Add ETFs to quote fetch AND their holdings
 			symbolsNeedingQuotes.add(ticker);
 			holdings.forEach((holding) => symbolsNeedingQuotes.add(holding.symbol));
 		})
