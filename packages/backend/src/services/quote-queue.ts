@@ -125,8 +125,6 @@ const fetchQuote = async (symbol: string): Promise<QuoteQueueResult> => {
 		try {
 			const response = await finnhubQuote(symbol);
 
-			console.log(`[quote-queue] Finnhub response for ${symbol}:`, response);
-
 			if (response.status === 429) {
 				const retryAfterHeader = Number(response.headers.get("retry-after"));
 				const backoff = Number.isFinite(retryAfterHeader)
