@@ -8,12 +8,7 @@ const RATE_INTERVAL_MS = Math.ceil((60 * 1000) / MAX_REQUESTS_PER_MINUTE);
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 500;
 
-type PendingResolver = {
-	resolve: (payload: QuoteQueueResult) => void;
-	reject: (error: Error) => void;
-};
-
-export type QuoteQueueResult = {
+type QuoteQueueResult = {
 	symbol: string;
 	price: number | null;
 	fetchedAt: number;
@@ -21,9 +16,10 @@ export type QuoteQueueResult = {
 	error?: string;
 };
 
+// queue to maintain fifo order
 const queue: string[] = [];
+// queuedSymbols for fast duplication checking
 const queuedSymbols = new Set<string>();
-const pendingResolvers = new Map<string, PendingResolver[]>();
 
 let workerTimer: NodeJS.Timeout | null = null;
 let isProcessing = false;
@@ -76,27 +72,6 @@ export const scheduleQuoteFetch = (symbol: string) => {
 	ensureWorker();
 };
 
-export const requestFreshQuote = (symbol: string) => {
-	const normalized = normalizeSymbol(symbol);
-
-	if (!normalized) {
-		return Promise.resolve<QuoteQueueResult>({
-			symbol: "",
-			price: null,
-			fetchedAt: Date.now(),
-			success: false,
-			error: "Invalid symbol"
-		});
-	}
-
-	return new Promise<QuoteQueueResult>((resolve, reject) => {
-		const existing = pendingResolvers.get(normalized) ?? [];
-		existing.push({ resolve, reject });
-		pendingResolvers.set(normalized, existing);
-		scheduleQuoteFetch(normalized);
-	});
-};
-
 const processQueue = async () => {
 	if (isProcessing) {
 		return;
@@ -134,33 +109,13 @@ const processQueue = async () => {
 		} else {
 			clearFetching(symbol);
 		}
-
-		resolvePending(symbol, result);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		logger.error(`[quote-queue] Failed to fetch ${symbol}: ${message}`);
 		clearFetching(symbol);
-		resolvePending(symbol, {
-			symbol,
-			price: null,
-			fetchedAt: Date.now(),
-			success: false,
-			error: message
-		});
 	} finally {
 		isProcessing = false;
 	}
-};
-
-const resolvePending = (symbol: string, payload: QuoteQueueResult) => {
-	const resolvers = pendingResolvers.get(symbol);
-
-	if (!resolvers) {
-		return;
-	}
-
-	pendingResolvers.delete(symbol);
-	resolvers.forEach(({ resolve }) => resolve(payload));
 };
 
 const fetchQuote = async (symbol: string): Promise<QuoteQueueResult> => {
@@ -169,6 +124,8 @@ const fetchQuote = async (symbol: string): Promise<QuoteQueueResult> => {
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
 		try {
 			const response = await finnhubQuote(symbol);
+
+			console.log(`[quote-queue] Finnhub response for ${symbol}:`, response);
 
 			if (response.status === 429) {
 				const retryAfterHeader = Number(response.headers.get("retry-after"));
