@@ -1,6 +1,6 @@
 import logger from "@logger";
 import { getCachedQuote, isQuoteFresh, type QuoteCacheEntry } from "@services/quote-cache";
-import { requestFreshQuote, scheduleQuoteFetch } from "@services/quote-queue";
+import { scheduleQuoteFetch } from "@services/quote-queue";
 
 type QuoteSnapshot = {
 	symbol: string;
@@ -69,39 +69,24 @@ const resolveSnapshot = async (
 	const cached = await getCachedQuote(symbol);
 
 	if (cached && isQuoteFresh(cached)) {
+		// Fresh cache, return immediately (no need to schedule refresh)
 		return serializeSnapshot(symbol, cached, true, false);
 	}
 
+	// Cache is stale or missing - schedule fetch and return what we have
+	scheduleQuoteFetch(symbol);
+
 	if (cached && options?.allowStale) {
-		scheduleQuoteFetch(symbol);
 		return serializeSnapshot(symbol, cached, false, true);
 	}
 
-	const fetched = await requestFreshQuote(symbol);
-
-	if (fetched.success && typeof fetched.price === "number" && Number.isFinite(fetched.price)) {
-		return {
-			symbol,
-			price: fetched.price,
-			updatedAt: fetched.fetchedAt,
-			isFresh: true,
-			isUpdating: false
-		};
-	}
-
-	if (cached) {
-		logger.warn(
-			`[quotes] Falling back to cached price for ${symbol} after fetch failure (${fetched.error ?? "unknown error"})`
-		);
-		return serializeSnapshot(symbol, cached, false, false);
-	}
-
+	// No cache at all - return null, fetch is scheduled
 	return {
 		symbol,
 		price: null,
 		updatedAt: null,
 		isFresh: false,
-		isUpdating: false
+		isUpdating: true
 	};
 };
 
