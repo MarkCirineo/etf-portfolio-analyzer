@@ -1,13 +1,16 @@
 import config from "@config";
+import logger from "@logger";
 import request from "./request";
 
-export const finnhub = async (url: string) => {
+export const finnhub = async (url: string, returnRaw: boolean = false) => {
 	const baseUrl = "https://finnhub.io/api/v1";
 	const apiKey = config.finnhub_api_key;
 
 	if (!apiKey) {
 		throw new Error("Finnhub API key is not configured");
 	}
+
+	logger.info(`[finnhub] Requesting ${baseUrl}${url}`);
 
 	const response = await request({
 		url: `${baseUrl}${url}`,
@@ -17,7 +20,8 @@ export const finnhub = async (url: string) => {
 				"Content-Type": "application/json",
 				"X-Finnhub-Token": apiKey
 			}
-		}
+		},
+		returnRaw
 	});
 
 	return response;
@@ -28,5 +32,5 @@ export const finnhubSearch = async (query: string) => {
 };
 
 export const finnhubQuote = async (symbol: string) => {
-	return await finnhub(`/quote?symbol=${encodeURIComponent(symbol)}`);
+	return await finnhub(`/quote?symbol=${encodeURIComponent(symbol)}`, true);
 };
