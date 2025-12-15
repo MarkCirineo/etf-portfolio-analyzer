@@ -12,7 +12,7 @@ type QuoteSnapshot = {
 
 export const fetchQuotes = async (
 	symbols: string[],
-	options?: { allowStale?: boolean }
+	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
 ): Promise<Map<string, number>> => {
 	const snapshots = await getQuoteSnapshots(symbols, options);
 	const result = new Map<string, number>();
@@ -28,7 +28,7 @@ export const fetchQuotes = async (
 
 export const getQuoteSnapshots = async (
 	symbols: string[],
-	options?: { allowStale?: boolean }
+	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
 ): Promise<Map<string, QuoteSnapshot>> => {
 	if (!symbols || symbols.length === 0) {
 		return new Map();
@@ -64,7 +64,7 @@ export const getQuoteSnapshots = async (
 
 const resolveSnapshot = async (
 	symbol: string,
-	options?: { allowStale?: boolean }
+	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
 ): Promise<QuoteSnapshot> => {
 	const cached = await getCachedQuote(symbol);
 
@@ -74,7 +74,9 @@ const resolveSnapshot = async (
 	}
 
 	// Cache is stale or missing - schedule fetch and return what we have
-	scheduleQuoteFetch(symbol);
+	// Prioritize ETFs by adding them to the front of the queue
+	const isEtf = options?.etfSymbols?.has(symbol) ?? false;
+	scheduleQuoteFetch(symbol, isEtf);
 
 	if (cached && options?.allowStale) {
 		return serializeSnapshot(symbol, cached, false, true);

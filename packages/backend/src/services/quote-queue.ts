@@ -51,7 +51,7 @@ const dequeue = () => {
 	return symbol;
 };
 
-export const scheduleQuoteFetch = (symbol: string) => {
+export const scheduleQuoteFetch = (symbol: string, priority: boolean = false) => {
 	const normalized = normalizeSymbol(symbol);
 
 	if (!normalized) {
@@ -66,7 +66,13 @@ export const scheduleQuoteFetch = (symbol: string) => {
 
 	if (!queuedSymbols.has(normalized)) {
 		queuedSymbols.add(normalized);
-		queue.push(normalized);
+		if (priority) {
+			// Add to front of queue for priority items (e.g., ETFs)
+			queue.unshift(normalized);
+		} else {
+			// Add to end of queue for normal items
+			queue.push(normalized);
+		}
 	}
 
 	ensureWorker();

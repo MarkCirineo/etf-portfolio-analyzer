@@ -58,7 +58,12 @@ export const analyzeList = async (
 	const quoteFailures = new Set<string>();
 
 	if (plan.symbolsNeedingQuotes.size > 0) {
-		const quotes = await fetchQuotes(Array.from(plan.symbolsNeedingQuotes), options);
+		// Extract ETF symbols for priority queueing
+		const etfSymbols = new Set(plan.etfInputs.map((etf) => etf.symbol));
+		const quotes = await fetchQuotes(Array.from(plan.symbolsNeedingQuotes), {
+			...options,
+			etfSymbols
+		});
 
 		for (const etf of plan.etfInputs) {
 			const etfPrice = quotes.get(etf.symbol);
