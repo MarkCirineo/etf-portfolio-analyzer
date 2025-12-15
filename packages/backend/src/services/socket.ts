@@ -6,7 +6,12 @@ import cookie from "cookie";
 import config from "@config";
 import logger from "@logger";
 import { verifyToken } from "@routes/auth/_shared";
-import { subscribeToQuoteUpdates } from "@services/quote-cache";
+import {
+	subscribeToList,
+	unsubscribeFromList,
+	unsubscribeSocket,
+	initListSubscriptions
+} from "@services/list-subscriptions";
 
 type AuthedSocket = Socket & {
 	data: {
@@ -17,7 +22,10 @@ type AuthedSocket = Socket & {
 };
 
 let io: SocketIOServer | null = null;
-let unsubscribeQuoteUpdates: (() => Promise<void>) | null = null;
+
+export const getSocketIO = (): SocketIOServer | null => {
+	return io;
+};
 
 export const initSocketServer = (server: HttpServer) => {
 	io = new SocketIOServer(server, {
@@ -29,29 +37,11 @@ export const initSocketServer = (server: HttpServer) => {
 
 	io.use(authenticateSocket);
 	io.on("connection", registerSocketHandlers);
-	registerQuoteBroadcast();
+
+	// Initialize list subscriptions (which will subscribe to quote updates)
+	initListSubscriptions();
 
 	logger.info("[socket] Socket.io server initialized");
-};
-
-const registerQuoteBroadcast = () => {
-	if (!io || unsubscribeQuoteUpdates) {
-		return;
-	}
-
-	void subscribeToQuoteUpdates((payload) => {
-		io?.emit("quote:update", payload);
-	})
-		.then((unsubscribe) => {
-			unsubscribeQuoteUpdates = unsubscribe;
-		})
-		.catch((error) => {
-			logger.error(
-				`[socket] Failed to subscribe to quote updates: ${
-					error instanceof Error ? error.message : String(error)
-				}`
-			);
-		});
 };
 
 const authenticateSocket: Parameters<SocketIOServer["use"]>[0] = (socket, next) => {
@@ -76,8 +66,48 @@ const authenticateSocket: Parameters<SocketIOServer["use"]>[0] = (socket, next) 
 const registerSocketHandlers = (socket: AuthedSocket) => {
 	logger.info(`[socket] user ${socket.data.userId} connected`);
 
+	socket.on("list:subscribe", async (data: { listId?: string }) => {
+		const { listId } = data;
+
+		if (!listId || typeof listId !== "string") {
+			socket.emit("error", { message: "Invalid listId" });
+			return;
+		}
+
+		// Join room for this list
+		const roomName = `list:${listId}`;
+		socket.join(roomName);
+
+		try {
+			await subscribeToList(listId, socket.id, socket.data.userId);
+		} catch (error) {
+			logger.error(
+				`[socket] Failed to subscribe to list ${listId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+			socket.leave(roomName);
+			socket.emit("error", { message: "Failed to subscribe to list" });
+		}
+	});
+
+	socket.on("list:unsubscribe", (data: { listId?: string }) => {
+		const { listId } = data;
+
+		if (!listId || typeof listId !== "string") {
+			return;
+		}
+
+		// Leave room for this list
+		const roomName = `list:${listId}`;
+		socket.leave(roomName);
+
+		unsubscribeFromList(listId, socket.id);
+	});
+
 	socket.on("disconnect", () => {
 		logger.info(`[socket] user ${socket.data.userId} disconnected`);
+		unsubscribeSocket(socket.id);
 	});
 };
 

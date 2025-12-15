@@ -134,6 +134,35 @@ export const serializeAggregatedHoldings = (
 		.sort((a, b) => b.totalShares - a.totalShares);
 };
 
+export const extractListSymbols = async (content: ListContent): Promise<Set<string>> => {
+	const plan = await collectDecompositionPlan(content);
+	const symbols = new Set<string>();
+
+	// Add all direct holdings
+	for (const ticker of Object.keys(content)) {
+		symbols.add(ticker.trim().toUpperCase());
+	}
+
+	// Add all ETF symbols
+	for (const etf of plan.etfInputs) {
+		symbols.add(etf.symbol);
+	}
+
+	// Add all holding symbols from ETFs
+	for (const etf of plan.etfInputs) {
+		for (const holding of etf.holdings) {
+			symbols.add(holding.symbol);
+		}
+	}
+
+	// Add all aggregated symbols (direct + derived)
+	for (const symbol of plan.aggregated.keys()) {
+		symbols.add(symbol);
+	}
+
+	return symbols;
+};
+
 export const collectDecompositionPlan = async (
 	content: ListContent
 ): Promise<DecompositionPlan> => {

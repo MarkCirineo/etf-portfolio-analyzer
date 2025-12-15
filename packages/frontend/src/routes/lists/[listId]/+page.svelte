@@ -8,7 +8,7 @@
 
 	import { API_BASE_URL, request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import type { List, ListAnalysis, ListDetail, QuoteBroadcastPayload } from "$lib/types";
+	import type { List, ListAnalysis, ListDetail } from "$lib/types";
 
 	let list: List | null = $state(null);
 	let analysis: ListAnalysis | null = $state(null);
@@ -18,33 +18,86 @@
 	let socket: Socket | null = null;
 
 	const disconnectSocket = () => {
-		socket?.disconnect();
-		socket = null;
+		if (socket) {
+			const { listId } = page.params;
+			if (listId) {
+				socket.emit("list:unsubscribe", { listId });
+			}
+			socket.disconnect();
+			socket = null;
+		}
 	};
 
-	const ensureSocket = () => {
-		if (socket) {
-			return socket;
-		}
-
+	const getSocketUrl = (): string | null => {
 		if (!API_BASE_URL) {
 			return null;
 		}
 
-		socket = io(API_BASE_URL, {
-			withCredentials: true
+		// Socket.IO connects to the same server as the API
+		// If API_BASE_URL is a full URL, extract the origin
+		// If it's a relative path (like /api), use window.location.origin
+		if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
+			// Extract origin from full URL (e.g., "http://localhost:3000/api" -> "http://localhost:3000")
+			try {
+				const url = new URL(API_BASE_URL);
+				return url.origin;
+			} catch {
+				return API_BASE_URL;
+			}
+		} else if (typeof window !== "undefined") {
+			// For relative paths, use the current origin (same as fetch requests)
+			return window.location.origin;
+		} else {
+			return API_BASE_URL;
+		}
+	};
+
+	const ensureSocket = (listId: string) => {
+		if (socket) {
+			// If socket exists and is connected, subscribe immediately
+			if (socket.connected && listId) {
+				socket.emit("list:subscribe", { listId });
+			}
+			return socket;
+		}
+
+		const socketUrl = getSocketUrl();
+		if (!socketUrl) {
+			return null;
+		}
+
+		socket = io(socketUrl, {
+			withCredentials: true,
+			transports: ["websocket", "polling"]
 		});
 
 		socket.on("connect_error", (err) => {
-			console.error(
-				"Socket connection error:",
-				err?.message || "Unable to connect to live pricing updates."
-			);
+			const socketUrl = getSocketUrl();
+			console.error("Socket connection error:", {
+				message: err?.message,
+				socketUrl,
+				API_BASE_URL,
+				error: err
+			});
 		});
 
-		socket.on("quote:update", (payload: QuoteBroadcastPayload) => {
-			// TODO: Handle quote update
-			console.log("Quote updated:", payload);
+		socket.on("connect", () => {
+			// Subscribe to list updates when connected
+			if (listId) {
+				socket?.emit("list:subscribe", { listId });
+			}
+		});
+
+		// If already connected, subscribe immediately
+		if (socket.connected && listId) {
+			socket.emit("list:subscribe", { listId });
+		}
+
+		socket.on("list:analysis:update", (payload: { listId: string; analysis: ListAnalysis }) => {
+			// Only update if this is for the current list
+			if (payload.listId === listId) {
+				analysis = payload.analysis;
+			}
 		});
 
 		return socket;
@@ -81,8 +134,10 @@
 			list = body.data.list;
 			analysis = body.data.analysis;
 
-			// Ensure socket connection for quote updates
-			ensureSocket();
+			// Ensure socket connection and subscribe to list updates
+			if (listId) {
+				ensureSocket(listId);
+			}
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
