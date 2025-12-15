@@ -33,7 +33,6 @@
 			return null;
 		}
 
-		// Socket.IO connects to the same server as the API
 		// If API_BASE_URL is a full URL, extract the origin
 		// If it's a relative path (like /api), use window.location.origin
 		if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
