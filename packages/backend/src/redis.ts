@@ -87,7 +87,23 @@ export const getRedisClient = (): Redis => {
 export const getRedisSubscriber = async (): Promise<Redis> => {
 	if (!redisSubscriber) {
 		redisSubscriber = getRedisClient().duplicate();
-		await redisSubscriber.connect();
+		// Only connect if not already connected or connecting
+		const status = redisSubscriber.status;
+		if (status !== "ready" && status !== "connecting") {
+			try {
+				await redisSubscriber.connect();
+			} catch (error) {
+				// If already connected, ignore the error
+				if (
+					!(
+						error instanceof Error &&
+						error.message.includes("already connecting/connected")
+					)
+				) {
+					throw error;
+				}
+			}
+		}
 	}
 
 	return redisSubscriber;
