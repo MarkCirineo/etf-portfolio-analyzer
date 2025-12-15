@@ -215,7 +215,7 @@ def get_etf_holdings(symbol: str) -> Dict[str, Any]:
         
         return {
             'holdings': holdings,
-            'failed': len(holdings) == 0
+            'failed': False
         }
         
     except Exception as e:
