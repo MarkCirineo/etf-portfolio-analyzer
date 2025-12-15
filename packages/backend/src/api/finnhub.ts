@@ -10,8 +10,6 @@ export const finnhub = async (url: string, returnRaw: boolean = false) => {
 		throw new Error("Finnhub API key is not configured");
 	}
 
-	logger.info(`[finnhub] Requesting ${baseUrl}${url}`);
-
 	const response = await request({
 		url: `${baseUrl}${url}`,
 		options: {
