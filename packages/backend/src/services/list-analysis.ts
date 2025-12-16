@@ -2,6 +2,7 @@ import logger from "@logger";
 import type { ListContent } from "@db/tables/List";
 import { etfScraper } from "@api/etf-scraper";
 import { fetchQuotes } from "@utils/quotes";
+import { redisGetJSON, redisSetJSON } from "@redis";
 
 export type NormalizedEtfHolding = {
 	symbol: string;
@@ -216,37 +217,83 @@ export const collectDecompositionPlan = async (
 	};
 };
 
+const ETF_HOLDINGS_CACHE_PREFIX = "etf:holdings";
+const ETF_HOLDINGS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+const buildEtfHoldingsCacheKey = (symbol: string) => {
+	const normalized = symbol.trim().toUpperCase();
+	return `${ETF_HOLDINGS_CACHE_PREFIX}:${normalized}`;
+};
+
 export const fetchEtfHoldings = async (
 	symbol: string
 ): Promise<FetchHoldingsResult | undefined> => {
+	const normalizedSymbol = symbol.trim().toUpperCase();
+	const cacheKey = buildEtfHoldingsCacheKey(normalizedSymbol);
+
+	// Try to get from cache first
 	try {
-		const response = await etfScraper(symbol);
+		const cached = await redisGetJSON<FetchHoldingsResult>(cacheKey);
+		if (cached) {
+			logger.debug(`[list] Using cached ETF holdings for ${normalizedSymbol}`);
+			return cached;
+		}
+	} catch (error) {
+		logger.warn(
+			`[list] Failed to read ETF holdings cache for ${normalizedSymbol}: ${
+				error instanceof Error ? error.message : String(error)
+			}`
+		);
+		// Continue to fetch from API if cache read fails
+	}
+
+	// Cache miss or error - fetch from API
+	try {
+		const response = await etfScraper(normalizedSymbol);
 
 		if (!isRecord(response)) {
-			logger.warn(`[list] Invalid response from ETF scraper for ${symbol}`);
-			return {
+			logger.warn(`[list] Invalid response from ETF scraper for ${normalizedSymbol}`);
+			const result: FetchHoldingsResult = {
 				holdings: [],
 				failed: true
 			};
+			// Cache failed results too
+			// TODO: (with shorter TTL might be better, but using same for simplicity)
+			await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
+				// Ignore cache write errors
+			});
+			return result;
 		}
 
 		const failed = response.failed === true;
 		const normalizedHoldings = parseHoldings(response);
 
-		return {
+		const result: FetchHoldingsResult = {
 			holdings: normalizedHoldings,
 			failed
 		};
+
+		// Cache the result
+		await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
+			// Ignore cache write errors - logging is optional
+		});
+
+		return result;
 	} catch (error) {
 		logger.warn(
-			`[list] Failed to fetch ETF holdings for ${symbol}: ${
+			`[list] Failed to fetch ETF holdings for ${normalizedSymbol}: ${
 				error instanceof Error ? error.message : String(error)
 			}`
 		);
-		return {
+		const result: FetchHoldingsResult = {
 			holdings: [],
 			failed: true
 		};
+		// Cache failed results to avoid repeated API calls for invalid symbols
+		await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
+			// Ignore cache write errors
+		});
+		return result;
 	}
 };
 
