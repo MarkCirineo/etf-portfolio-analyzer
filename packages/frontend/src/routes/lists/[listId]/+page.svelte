@@ -16,6 +16,7 @@
 	let error = $state<string | null>(null);
 	let showAllHoldings = $state(false);
 	let socket: Socket | null = null;
+	let hasReceivedFirstAnalysis = $state(false);
 
 	const disconnectSocket = () => {
 		if (socket) {
@@ -96,6 +97,10 @@
 			// Only update if this is for the current list
 			if (payload.listId === listId) {
 				analysis = payload.analysis;
+				// Mark that we've received at least one analysis update
+				if (payload.analysis.holdings && payload.analysis.holdings.length > 0) {
+					hasReceivedFirstAnalysis = true;
+				}
 			}
 		});
 
@@ -132,6 +137,13 @@
 
 			list = body.data.list;
 			analysis = body.data.analysis;
+
+			// Check if we have initial data or if we're waiting for first analysis
+			if (analysis?.holdings && analysis.holdings.length > 0) {
+				hasReceivedFirstAnalysis = true;
+			} else {
+				hasReceivedFirstAnalysis = false;
+			}
 
 			// Ensure socket connection and subscribe to list updates
 			if (listId) {
@@ -197,6 +209,29 @@
 	const hasMoreHoldings = () => {
 		return (analysis?.holdings?.length || 0) > 15;
 	};
+
+	const isAnalysisInProgress = () => {
+		// Analysis is in progress if we have quoteFailures but also have some holdings
+		// This means quotes are being fetched in the background
+		return (
+			analysis !== null &&
+			analysis.quoteFailures &&
+			analysis.quoteFailures.length > 0 &&
+			analysis.holdings &&
+			analysis.holdings.length > 0
+		);
+	};
+
+	const isWaitingForFirstAnalysis = () => {
+		// We're waiting if we have no holdings and haven't received the first update yet
+		return (
+			!loading &&
+			!error &&
+			list !== null &&
+			!hasReceivedFirstAnalysis &&
+			(!analysis || !analysis.holdings || analysis.holdings.length === 0)
+		);
+	};
 </script>
 
 <div class="container mx-auto max-w-5xl px-4 py-8">
@@ -250,8 +285,42 @@
 		>
 			<p class="text-sm text-zinc-600 dark:text-zinc-400">This list could not be found.</p>
 		</div>
+	{:else if isWaitingForFirstAnalysis()}
+		<div
+			class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
+		>
+			<div class="flex flex-col items-center gap-4">
+				<RefreshCw class="size-8 animate-spin text-zinc-600 dark:text-zinc-400" />
+				<div>
+					<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+						Calculating portfolio analysis...
+					</p>
+					<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+						Fetching quotes and analyzing holdings. This may take a moment.
+					</p>
+				</div>
+			</div>
+		</div>
 	{:else}
 		<div class="space-y-6">
+			{#if isAnalysisInProgress()}
+				<div
+					class="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
+				>
+					<div class="flex items-center gap-2">
+						<RefreshCw class="size-4 animate-spin" />
+						<span>
+							<strong>Analysis in progress:</strong> Fetching live prices for{" "}
+							{analysis?.quoteFailures?.length || 0} symbol{analysis?.quoteFailures
+								?.length !== 1
+								? "s"
+								: ""}. The analysis will update automatically as quotes become
+							available.
+						</span>
+					</div>
+				</div>
+			{/if}
+
 			<div
 				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
 			>
@@ -344,7 +413,7 @@
 					</div>
 				{/if}
 
-				{#if analysis?.quoteFailures?.length}
+				{#if analysis?.quoteFailures?.length && !isAnalysisInProgress()}
 					<div
 						class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
 					>
