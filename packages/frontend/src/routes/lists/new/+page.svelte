@@ -88,7 +88,7 @@
 	<div class="mb-6">
 		<h1 class="text-3xl font-bold text-zinc-900 dark:text-zinc-100">Create New List</h1>
 		<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-			Search for ETFs and add them to your portfolio list
+			Search for ETFs and stocks to add to your portfolio list
 		</p>
 	</div>
 

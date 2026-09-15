@@ -8,7 +8,9 @@
 
 	import { API_BASE_URL, request } from "$lib/request";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import type { List, ListAnalysis, ListDetail } from "$lib/types";
+	import type { AnalyzedHolding, List, ListAnalysis, ListDetail, PriceStatus } from "$lib/types";
+
+	const PREVIEW_ROWS = 15;
 
 	let list: List | null = $state(null);
 	let analysis: ListAnalysis | null = $state(null);
@@ -16,7 +18,6 @@
 	let error = $state<string | null>(null);
 	let showAllHoldings = $state(false);
 	let socket: Socket | null = null;
-	let hasReceivedFirstAnalysis = $state(false);
 
 	const disconnectSocket = () => {
 		if (socket) {
@@ -34,28 +35,30 @@
 			return null;
 		}
 
-		// If API_BASE_URL is a full URL, extract the origin
-		// If it's a relative path (like /api), use window.location.origin
+		// A full URL points at the API host; a relative path means same origin
 		if (API_BASE_URL.startsWith("http://") || API_BASE_URL.startsWith("https://")) {
-			// Extract origin from full URL (e.g., "http://localhost:3000/api" -> "http://localhost:3000")
 			try {
-				const url = new URL(API_BASE_URL);
-				return url.origin;
+				return new URL(API_BASE_URL).origin;
 			} catch {
 				return API_BASE_URL;
 			}
-		} else if (typeof window !== "undefined") {
-			// For relative paths, use the current origin (same as fetch requests)
-			return window.location.origin;
-		} else {
-			return API_BASE_URL;
 		}
+
+		return typeof window !== "undefined" ? window.location.origin : API_BASE_URL;
+	};
+
+	const applyAnalysis = (incoming: ListAnalysis) => {
+		// The HTTP response and the first socket push can race; keep the newer one
+		if (analysis && incoming.generatedAt < analysis.generatedAt) {
+			return;
+		}
+
+		analysis = incoming;
 	};
 
 	const ensureSocket = (listId: string) => {
 		if (socket) {
-			// If socket exists and is connected, subscribe immediately
-			if (socket.connected && listId) {
+			if (socket.connected) {
 				socket.emit("list:subscribe", { listId });
 			}
 			return socket;
@@ -72,35 +75,16 @@
 		});
 
 		socket.on("connect_error", (err) => {
-			const socketUrl = getSocketUrl();
-			console.error("Socket connection error:", {
-				message: err?.message,
-				socketUrl,
-				API_BASE_URL,
-				error: err
-			});
+			console.error("Socket connection error:", err?.message);
 		});
 
 		socket.on("connect", () => {
-			// Subscribe to list updates when connected
-			if (listId) {
-				socket?.emit("list:subscribe", { listId });
-			}
+			socket?.emit("list:subscribe", { listId });
 		});
 
-		// If already connected, subscribe immediately
-		if (socket.connected && listId) {
-			socket.emit("list:subscribe", { listId });
-		}
-
 		socket.on("list:analysis:update", (payload: { listId: string; analysis: ListAnalysis }) => {
-			// Only update if this is for the current list
 			if (payload.listId === listId) {
-				analysis = payload.analysis;
-				// Mark that we've received at least one analysis update
-				if (payload.analysis.holdings && payload.analysis.holdings.length > 0) {
-					hasReceivedFirstAnalysis = true;
-				}
+				applyAnalysis(payload.analysis);
 			}
 		});
 
@@ -120,9 +104,7 @@
 		}
 
 		try {
-			const response = await request(`/list/${listId}/analysis`, {
-				method: "GET"
-			});
+			const response = await request(`/list/${listId}/analysis`, { method: "GET" });
 
 			if (!response.ok) {
 				const body = await response.json().catch(() => ({}));
@@ -136,19 +118,8 @@
 			}
 
 			list = body.data.list;
-			analysis = body.data.analysis;
-
-			// Check if we have initial data or if we're waiting for first analysis
-			if (analysis?.holdings && analysis.holdings.length > 0) {
-				hasReceivedFirstAnalysis = true;
-			} else {
-				hasReceivedFirstAnalysis = false;
-			}
-
-			// Ensure socket connection and subscribe to list updates
-			if (listId) {
-				ensureSocket(listId);
-			}
+			applyAnalysis(body.data.analysis);
+			ensureSocket(listId);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";
 			error = message;
@@ -178,15 +149,34 @@
 		});
 	};
 
-	const formatShares = (value?: number) => {
+	const formatTime = (value?: string) => {
+		if (!value) return "-";
+
+		return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+	};
+
+	const formatCurrency = (value: number | null | undefined) => {
 		if (typeof value !== "number" || Number.isNaN(value)) {
-			return "-";
+			return "—";
 		}
 
-		return value.toLocaleString("en-US", {
-			minimumFractionDigits: 4,
-			maximumFractionDigits: 4
-		});
+		return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
+	};
+
+	const formatPercent = (value: number | null | undefined, digits = 2) => {
+		if (typeof value !== "number" || Number.isNaN(value)) {
+			return "—";
+		}
+
+		return `${value.toFixed(digits)}%`;
+	};
+
+	const formatShares = (value: number | null | undefined) => {
+		if (typeof value !== "number" || Number.isNaN(value)) {
+			return "—";
+		}
+
+		return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 	};
 
 	const handleBack = () => {
@@ -201,34 +191,57 @@
 		goto(`/lists/${list.id}/edit`);
 	};
 
-	const getDisplayedHoldings = () => {
+	const getDisplayedHoldings = (): AnalyzedHolding[] => {
 		if (!analysis?.holdings) return [];
-		return showAllHoldings ? analysis.holdings : analysis.holdings.slice(0, 15);
+		return showAllHoldings ? analysis.holdings : analysis.holdings.slice(0, PREVIEW_ROWS);
 	};
 
 	const hasMoreHoldings = () => {
-		return (analysis?.holdings?.length || 0) > 15;
+		return (analysis?.holdings?.length || 0) > PREVIEW_ROWS;
 	};
 
-	const isAnalysisInProgress = () => {
-		// Analysis is in progress if we have pendingQuotes
-		// This means quotes are being fetched in the background
-		return analysis !== null && analysis.pendingQuotes && analysis.pendingQuotes.length > 0;
+	const isPricing = () => {
+		return (analysis?.quotes.pending ?? 0) > 0 || analysis?.totalValueComplete === false;
 	};
 
-	const isWaitingForFirstAnalysis = () => {
-		// We're waiting if we have no holdings and haven't received the first update yet
+	const pricedFraction = () => {
+		const quotes = analysis?.quotes;
+		if (!quotes || quotes.requested === 0) return 1;
+		return quotes.priced / quotes.requested;
+	};
+
+	const largestPercent = () => {
+		return analysis?.holdings?.[0]?.percentOfPortfolio || 0;
+	};
+
+	const barWidth = (percent: number) => {
+		const largest = largestPercent();
+		return largest > 0 ? `${Math.max((percent / largest) * 100, 1)}%` : "0%";
+	};
+
+	const leveragedInputs = () => {
 		return (
-			!loading &&
-			!error &&
-			list !== null &&
-			!hasReceivedFirstAnalysis &&
-			(!analysis || !analysis.holdings || analysis.holdings.length === 0)
+			analysis?.inputs.filter((input) => input.leveraged).map((input) => input.symbol) ?? []
 		);
+	};
+
+	const priceNote = (status: PriceStatus) => {
+		switch (status) {
+			case "stale":
+				return "stale";
+			case "pending":
+				return "loading";
+			case "unavailable":
+				return "unavailable";
+			case "not-requested":
+				return "not priced";
+			default:
+				return "";
+		}
 	};
 </script>
 
-<div class="container mx-auto max-w-5xl px-4 py-8">
+<div class="container mx-auto max-w-6xl px-4 py-8">
 	<div class="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
 		<div>
 			<Button
@@ -273,64 +286,222 @@
 				>Try again</Button
 			>
 		</div>
-	{:else if !list}
+	{:else if !list || !analysis}
 		<div
 			class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
 		>
 			<p class="text-sm text-zinc-600 dark:text-zinc-400">This list could not be found.</p>
 		</div>
-	{:else if isWaitingForFirstAnalysis()}
-		<div
-			class="rounded-lg border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
-		>
-			<div class="flex flex-col items-center gap-4">
-				<RefreshCw class="size-8 animate-spin text-zinc-600 dark:text-zinc-400" />
-				<div>
-					<p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-						Calculating portfolio analysis...
-					</p>
-					<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-						Fetching quotes and analyzing holdings. This may take a moment.
-					</p>
-				</div>
-			</div>
-		</div>
 	{:else}
 		<div class="space-y-6">
-			{#if isAnalysisInProgress()}
+			<!-- Summary -->
+			<div class="grid gap-4 md:grid-cols-3">
 				<div
-					class="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
+					class="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
 				>
-					<div class="flex items-center gap-2">
-						<RefreshCw class="size-4 animate-spin" />
-						<span>
-							<strong>Analysis in progress:</strong> Fetching live prices for{" "}
-							{analysis?.pendingQuotes?.length || 0} symbol{analysis?.pendingQuotes
-								?.length !== 1
-								? "s"
-								: ""}. The analysis will update automatically as quotes become
-							available.
-						</span>
-					</div>
+					<p
+						class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+					>
+						Portfolio value
+					</p>
+					<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+						{formatCurrency(analysis.totalValue)}
+					</p>
+					<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+						{#if !analysis.totalValueComplete}
+							Pricing your holdings…
+						{:else}
+							{analysis.inputs.length} holding{analysis.inputs.length === 1
+								? ""
+								: "s"} · market {analysis.marketOpen ? "open" : "closed"}
+						{/if}
+					</p>
+				</div>
+				<div
+					class="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+				>
+					<p
+						class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+					>
+						Look-through
+					</p>
+					<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+						{(analysis.holdings.length + analysis.tail.count).toLocaleString("en-US")} securities
+					</p>
+					<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+						{formatPercent(analysis.cashAndOther.percentOfPortfolio, 1)} cash &amp; unlisted
+					</p>
+				</div>
+				<div
+					class="rounded-lg border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
+				>
+					<p
+						class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400"
+					>
+						Prices
+					</p>
+					{#if isPricing()}
+						<p
+							class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-zinc-100"
+						>
+							<RefreshCw class="size-5 animate-spin text-zinc-400" />
+							{analysis.quotes.priced} / {analysis.quotes.requested}
+						</p>
+						<div class="mt-2 h-1.5 w-full rounded-full bg-zinc-200 dark:bg-zinc-800">
+							<div
+								class="h-1.5 rounded-full bg-blue-500 transition-all"
+								style={`width: ${pricedFraction() * 100}%`}
+							></div>
+						</div>
+						<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+							Share counts fill in as prices arrive
+						</p>
+					{:else}
+						<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+							Up to date
+						</p>
+						<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+							{analysis.quotes.priced} priced · as of {formatTime(
+								analysis.generatedAt
+							)}
+						</p>
+					{/if}
+				</div>
+			</div>
+
+			<!-- Notices -->
+			{#if analysis.failedTickers.length}
+				<div
+					class="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
+				>
+					Holdings could not be looked up for {analysis.failedTickers.join(", ")}. Until
+					that resolves they are treated as directly held shares.
 				</div>
 			{/if}
 
+			{#if leveragedInputs().length}
+				<div
+					class="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
+				>
+					{leveragedInputs().join(", ")}
+					{leveragedInputs().length === 1
+						? "is a leveraged fund"
+						: "are leveraged funds"}. The look-through reflects what the fund physically
+					holds (mostly cash and swaps), not its multiplied index exposure.
+				</div>
+			{/if}
+
+			{#if analysis.quoteFailures.length && !isPricing()}
+				<div
+					class="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
+				>
+					No price available for {analysis.quoteFailures.join(", ")}. Exposure is still
+					counted; share counts for these are unknown.
+				</div>
+			{/if}
+
+			<!-- Inputs -->
+			<div
+				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
+			>
+				<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+					Your holdings
+				</h2>
+				<p class="text-sm text-zinc-500 dark:text-zinc-400">
+					What you entered, priced. ETFs are broken down below.
+				</p>
+				<div class="mt-4 overflow-x-auto">
+					<table class="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+						<thead>
+							<tr
+								class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+							>
+								<th class="px-4 py-2">Symbol</th>
+								<th class="px-4 py-2">Type</th>
+								<th class="px-4 py-2 text-right">Shares</th>
+								<th class="px-4 py-2 text-right">Price</th>
+								<th class="px-4 py-2 text-right">Value</th>
+								<th class="px-4 py-2 text-right">% of portfolio</th>
+								<th class="px-4 py-2">Holdings</th>
+							</tr>
+						</thead>
+						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+							{#each analysis.inputs as input (input.symbol)}
+								<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
+									<td
+										class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
+									>
+										{input.symbol}
+									</td>
+									<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+										{#if input.kind === "etf"}
+											ETF{input.leveraged ? " · leveraged" : ""}
+										{:else if input.kind === "stock"}
+											Stock
+										{:else}
+											Unknown
+										{/if}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatShares(input.shares)}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatCurrency(input.price)}
+										{#if priceNote(input.priceStatus)}
+											<span class="ml-1 text-xs text-zinc-400"
+												>{priceNote(input.priceStatus)}</span
+											>
+										{/if}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatCurrency(input.value)}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatPercent(input.percentOfPortfolio)}
+									</td>
+									<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
+										{#if input.holdingsCount !== null}
+											{input.holdingsCount.toLocaleString("en-US")}
+											{#if input.holdingsAsOf}
+												<span class="text-xs text-zinc-400"
+													>as of {input.holdingsAsOf}</span
+												>
+											{/if}
+										{:else}
+											—
+										{/if}
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			</div>
+
+			<!-- Look-through -->
 			<div
 				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
 			>
 				<div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
 					<div>
 						<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-							Effective Stock Exposure
+							Effective stock exposure
 						</h2>
 						<p class="text-sm text-zinc-500 dark:text-zinc-400">
-							{analysis
-								? `Generated ${formatDate(analysis.generatedAt)}`
-								: "No analysis has been generated yet"}
+							Every security you own, directly or through your ETFs, by dollar
+							exposure.
 						</p>
 					</div>
 					<div class="text-sm text-zinc-500 dark:text-zinc-400">
-						{analysis?.holdings?.length || 0} symbols
+						Generated {formatTime(analysis.generatedAt)}
 					</div>
 				</div>
 
@@ -342,47 +513,145 @@
 							>
 								<th class="px-4 py-2">Symbol</th>
 								<th class="px-4 py-2">Name</th>
-								<th class="px-4 py-2">Total Shares</th>
-								<th class="px-4 py-2">Direct Shares</th>
-								<th class="px-4 py-2">Via ETFs</th>
+								<th class="px-4 py-2 text-right">Exposure</th>
+								<th class="px-4 py-2">% of portfolio</th>
+								<th class="px-4 py-2 text-right">Shares</th>
+								<th class="px-4 py-2 text-right">Price</th>
+								<th class="px-4 py-2">Via</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-							{#if analysis?.holdings?.length}
-								{#each getDisplayedHoldings() as holding}
-									<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
-										<td
-											class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
-										>
-											{holding.symbol}
-										</td>
-										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-											{holding.name || "-"}
-										</td>
-										<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
-											{formatShares(holding.totalShares)}
-										</td>
-										<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300">
-											{formatShares(holding.directShares)}
-										</td>
-										<td class="px-4 py-3 text-zinc-600 dark:text-zinc-400">
-											{holding.viaEtfs.length === 0
-												? "Direct only"
-												: holding.viaEtfs.join(", ")}
-										</td>
-									</tr>
-								{/each}
+							{#each getDisplayedHoldings() as holding (holding.symbol)}
+								<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
+									<td
+										class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
+									>
+										{holding.symbol}
+									</td>
+									<td
+										class="max-w-56 truncate px-4 py-3 text-zinc-600 dark:text-zinc-400"
+									>
+										{holding.name || "—"}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatCurrency(holding.exposure)}
+									</td>
+									<td class="min-w-40 px-4 py-3">
+										<div class="flex items-center gap-2">
+											<div
+												class="h-1.5 w-20 rounded-full bg-zinc-100 dark:bg-zinc-800"
+											>
+												<div
+													class="h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500"
+													style={`width: ${barWidth(holding.percentOfPortfolio)}`}
+												></div>
+											</div>
+											<span class="text-zinc-700 dark:text-zinc-300">
+												{formatPercent(holding.percentOfPortfolio)}
+											</span>
+										</div>
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatShares(holding.totalShares)}
+										{#if holding.directShares > 0 && holding.viaEtfs.length > 0}
+											<div class="text-xs text-zinc-400">
+												{formatShares(holding.directShares)} direct
+											</div>
+										{/if}
+									</td>
+									<td
+										class="px-4 py-3 text-right text-zinc-700 dark:text-zinc-300"
+									>
+										{formatCurrency(holding.price)}
+										{#if priceNote(holding.priceStatus)}
+											<div class="text-xs text-zinc-400">
+												{priceNote(holding.priceStatus)}
+											</div>
+										{/if}
+									</td>
+									<td class="px-4 py-3">
+										<div class="flex flex-wrap gap-1">
+											{#if holding.directShares > 0}
+												<span
+													class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+												>
+													Direct
+												</span>
+											{/if}
+											{#each holding.viaEtfs as via (via.etf)}
+												<span
+													class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+													title={`${formatCurrency(via.exposure)} through ${via.etf}`}
+												>
+													{via.etf}
+													{formatPercent(via.weight)}
+												</span>
+											{/each}
+										</div>
+									</td>
+								</tr>
 							{:else}
 								<tr>
 									<td
 										class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400"
-										colspan="5"
+										colspan="7"
 									>
-										No effective stock exposure calculated yet.
+										No exposure calculated yet.
 									</td>
 								</tr>
-							{/if}
+							{/each}
 						</tbody>
+						{#if analysis.tail.count > 0 || analysis.cashAndOther.exposure > 0}
+							<tfoot
+								class="divide-y divide-zinc-100 text-zinc-500 dark:divide-zinc-800 dark:text-zinc-400"
+							>
+								{#if analysis.tail.count > 0}
+									<tr>
+										<td class="px-4 py-3" colspan="2">
+											{analysis.tail.count.toLocaleString("en-US")} smaller holdings
+										</td>
+										<td class="px-4 py-3 text-right"
+											>{formatCurrency(analysis.tail.exposure)}</td
+										>
+										<td class="px-4 py-3"
+											>{formatPercent(analysis.tail.percentOfPortfolio)}</td
+										>
+										<td class="px-4 py-3" colspan="3"></td>
+									</tr>
+								{/if}
+								{#if analysis.cashAndOther.exposure > 0}
+									<tr>
+										<td class="px-4 py-3" colspan="2">
+											Cash &amp; unlisted
+											{#if analysis.cashAndOther.items.length}
+												<div class="text-xs text-zinc-400">
+													{analysis.cashAndOther.items
+														.slice(0, 3)
+														.map((item) => item.name)
+														.join(", ")}{analysis.cashAndOther.items
+														.length > 3
+														? ", …"
+														: ""}
+												</div>
+											{/if}
+										</td>
+										<td class="px-4 py-3 text-right">
+											{formatCurrency(analysis.cashAndOther.exposure)}
+										</td>
+										<td class="px-4 py-3">
+											{formatPercent(
+												analysis.cashAndOther.percentOfPortfolio
+											)}
+										</td>
+										<td class="px-4 py-3" colspan="3"></td>
+									</tr>
+								{/if}
+							</tfoot>
+						{/if}
 					</table>
 				</div>
 
@@ -394,72 +663,10 @@
 						>
 							{showAllHoldings
 								? "Show Less"
-								: `View All (${analysis?.holdings?.length || 0} total)`}
+								: `View All (${analysis.holdings.length.toLocaleString("en-US")})`}
 						</Button>
 					</div>
 				{/if}
-
-				{#if analysis?.failedTickers?.length}
-					<div
-						class="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
-					>
-						Some ETFs could not be decomposed: {analysis.failedTickers.join(", ")}
-					</div>
-				{/if}
-
-				{#if analysis?.quoteFailures?.length && !isAnalysisInProgress()}
-					<div
-						class="mt-4 rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100"
-					>
-						Live prices were unavailable for: {analysis.quoteFailures.join(", ")}.
-						Exposure for these tickers may be understated until quotes refresh.
-					</div>
-				{/if}
-			</div>
-
-			<div
-				class="rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900"
-			>
-				<h2 class="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-					Original Holdings
-				</h2>
-				<p class="text-sm text-zinc-500 dark:text-zinc-400">
-					These are the raw inputs stored on the list before any ETF decomposition.
-				</p>
-				<div class="mt-4 overflow-x-auto">
-					<table class="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-						<thead>
-							<tr
-								class="bg-zinc-50 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-							>
-								<th class="px-4 py-2">Ticker</th>
-								<th class="px-4 py-2">Shares</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-							{#each Object.entries(list.content || {}) as [ticker, shares]}
-								<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
-									<td
-										class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
-										>{ticker}</td
-									>
-									<td class="px-4 py-3 text-zinc-700 dark:text-zinc-300"
-										>{formatShares(shares)}</td
-									>
-								</tr>
-							{:else}
-								<tr>
-									<td
-										class="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400"
-										colspan="2"
-									>
-										This list has no holdings yet.
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
 			</div>
 		</div>
 	{/if}
