@@ -36,7 +36,12 @@ jobs:
               run: |
                   yarn check
 
-            - name: Lint code
+            - name: Lint backend
               working-directory: packages/backend
+              run: |
+                  yarn lint
+
+            - name: Lint frontend
+              working-directory: packages/frontend
               run: |
                   yarn lint
