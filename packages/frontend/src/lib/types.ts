@@ -34,6 +34,7 @@ export type ListAnalysis = {
 	holdings: AggregatedHolding[];
 	failedTickers: string[];
 	quoteFailures: string[];
+	pendingQuotes: string[];
 	generatedAt: string;
 };
 

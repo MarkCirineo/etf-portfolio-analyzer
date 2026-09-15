@@ -211,15 +211,9 @@
 	};
 
 	const isAnalysisInProgress = () => {
-		// Analysis is in progress if we have quoteFailures but also have some holdings
+		// Analysis is in progress if we have pendingQuotes
 		// This means quotes are being fetched in the background
-		return (
-			analysis !== null &&
-			analysis.quoteFailures &&
-			analysis.quoteFailures.length > 0 &&
-			analysis.holdings &&
-			analysis.holdings.length > 0
-		);
+		return analysis !== null && analysis.pendingQuotes && analysis.pendingQuotes.length > 0;
 	};
 
 	const isWaitingForFirstAnalysis = () => {
@@ -311,7 +305,7 @@
 						<RefreshCw class="size-4 animate-spin" />
 						<span>
 							<strong>Analysis in progress:</strong> Fetching live prices for{" "}
-							{analysis?.quoteFailures?.length || 0} symbol{analysis?.quoteFailures
+							{analysis?.pendingQuotes?.length || 0} symbol{analysis?.pendingQuotes
 								?.length !== 1
 								? "s"
 								: ""}. The analysis will update automatically as quotes become

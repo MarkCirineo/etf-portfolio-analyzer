@@ -1,7 +1,7 @@
 import logger from "@logger";
 import type { ListContent } from "@db/tables/List";
 import { etfScraper } from "@api/etf-scraper";
-import { fetchQuotes } from "@utils/quotes";
+import { fetchQuotes, getQuoteSnapshots } from "@utils/quotes";
 import { redisGetJSON, redisSetJSON } from "@redis";
 
 export type NormalizedEtfHolding = {
@@ -22,6 +22,7 @@ export type ListAnalysis = {
 	holdings: AggregatedHolding[];
 	failedTickers: string[];
 	quoteFailures: string[];
+	pendingQuotes: string[];
 	generatedAt: string;
 };
 
@@ -57,21 +58,38 @@ export const analyzeList = async (
 ): Promise<ListAnalysis> => {
 	const plan = await collectDecompositionPlan(content);
 	const quoteFailures = new Set<string>();
+	const pendingQuotes = new Set<string>();
 
 	if (plan.symbolsNeedingQuotes.size > 0) {
 		// Extract ETF symbols for priority queueing
 		const etfSymbols = new Set(plan.etfInputs.map((etf) => etf.symbol));
-		const quotes = await fetchQuotes(Array.from(plan.symbolsNeedingQuotes), {
+
+		// Get quote snapshots to determine which quotes are pending vs failed
+		const quoteSnapshots = await getQuoteSnapshots(Array.from(plan.symbolsNeedingQuotes), {
 			...options,
 			etfSymbols
 		});
+
+		// Build quotes map and track pending/failed quotes
+		const quotes = new Map<string, number>();
+		for (const [symbol, snapshot] of quoteSnapshots.entries()) {
+			if (typeof snapshot.price === "number" && Number.isFinite(snapshot.price)) {
+				quotes.set(symbol, snapshot.price);
+			} else if (snapshot.isUpdating) {
+				// Quote is scheduled/being fetched
+				pendingQuotes.add(symbol);
+			} else {
+				// Quote is not available and not being fetched (actual failure)
+				quoteFailures.add(symbol);
+			}
+		}
 
 		for (const etf of plan.etfInputs) {
 			const etfPrice = quotes.get(etf.symbol);
 
 			if (!isValidPrice(etfPrice)) {
 				plan.failedTickers.add(etf.symbol);
-				quoteFailures.add(etf.symbol);
+				// Don't add to quoteFailures here - it's already handled above
 				continue;
 			}
 
@@ -79,7 +97,7 @@ export const analyzeList = async (
 				const holdingPrice = quotes.get(holding.symbol);
 
 				if (!isValidPrice(holdingPrice)) {
-					quoteFailures.add(holding.symbol);
+					// Don't add to quoteFailures here - it's already handled above
 					continue;
 				}
 
@@ -102,7 +120,8 @@ export const analyzeList = async (
 
 	return buildListAnalysis(plan.aggregated, {
 		failedTickers: plan.failedTickers,
-		quoteFailures
+		quoteFailures,
+		pendingQuotes
 	});
 };
 
@@ -111,12 +130,14 @@ export const buildListAnalysis = (
 	metadata: {
 		failedTickers: Set<string>;
 		quoteFailures: Set<string>;
+		pendingQuotes: Set<string>;
 	}
 ): ListAnalysis => {
 	return {
 		holdings: serializeAggregatedHoldings(aggregated),
 		failedTickers: Array.from(metadata.failedTickers),
 		quoteFailures: Array.from(metadata.quoteFailures),
+		pendingQuotes: Array.from(metadata.pendingQuotes),
 		generatedAt: new Date().toISOString()
 	};
 };
