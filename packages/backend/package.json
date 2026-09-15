@@ -4,7 +4,7 @@
 	"main": "dist/src/index.js",
 	"type": "module",
 	"scripts": {
-		"dev": "nodemon -e ts --ignore src/**/*.ts --exec \"yarn serve\"",
+		"dev": "nodemon --watch src -e ts --exec \"yarn serve\"",
 		"serve": "yarn build && node ./dist/index.js",
 		"lint": "prettier --check .",
 		"format": "prettier --write .",

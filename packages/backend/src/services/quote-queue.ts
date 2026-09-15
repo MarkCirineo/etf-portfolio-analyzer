@@ -1,184 +1,230 @@
 import { finnhubQuote } from "@api/finnhub";
 import logger from "@logger";
+import { saveQuoteFailure, saveQuoteToCache } from "@services/quote-cache";
 
-import { clearFetching, isFetching, markFetching, saveQuoteToCache } from "@services/quote-cache";
+/**
+ * Finnhub's free tier allows 60 calls/minute and the symbol search shares that budget,
+ * so dispatch a little slower than one per second.
+ */
+const RATE_INTERVAL_MS = 1100;
+/** Dispatch on the interval without waiting for the previous response to come back. */
+const MAX_IN_FLIGHT = 3;
+const TICK_MS = 100;
+const RATE_LIMIT_PAUSE_MS = 15 * 1000;
+const NETWORK_RETRIES = 2;
+const NETWORK_RETRY_DELAY_MS = 500;
 
-const MAX_REQUESTS_PER_MINUTE = 60;
-const RATE_INTERVAL_MS = Math.ceil((60 * 1000) / MAX_REQUESTS_PER_MINUTE);
-const MAX_RETRIES = 3;
-const BASE_RETRY_DELAY_MS = 500;
+type FetchOutcome =
+	| { kind: "ok"; price: number; tradedAt: number | null }
+	| { kind: "rate-limited"; retryAfterMs: number }
+	| { kind: "failed"; reason: string };
 
-type QuoteQueueResult = {
-	symbol: string;
-	price: number | null;
-	fetchedAt: number;
-	success: boolean;
-	error?: string;
-};
-
-// queue to maintain fifo order
-const queue: string[] = [];
-// queuedSymbols for fast duplication checking
-const queuedSymbols = new Set<string>();
+// symbol -> priority; higher fetches sooner. Re-scheduling only ever raises the priority.
+const queued = new Map<string, number>();
+const inFlight = new Set<string>();
 
 let workerTimer: NodeJS.Timeout | null = null;
-let isProcessing = false;
 let lastDispatchedAt = 0;
+let pausedUntil = 0;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export const scheduleQuoteFetch = (symbol: string, priority = 0) => {
+	const normalized = normalizeSymbol(symbol);
+
+	if (!normalized || inFlight.has(normalized)) {
+		return;
+	}
+
+	const existing = queued.get(normalized);
+
+	if (existing === undefined || priority > existing) {
+		queued.set(normalized, priority);
+	}
+
+	ensureWorker();
+};
+
+export const isQuoteQueued = (symbol: string) => {
+	const normalized = normalizeSymbol(symbol);
+	return queued.has(normalized) || inFlight.has(normalized);
+};
+
+export const getQueueStats = () => ({
+	queued: queued.size,
+	inFlight: inFlight.size,
+	pausedForMs: Math.max(pausedUntil - Date.now(), 0)
+});
 
 const ensureWorker = () => {
 	if (workerTimer) {
 		return;
 	}
 
-	workerTimer = setInterval(() => {
-		void processQueue();
-	}, 250);
+	workerTimer = setInterval(tick, TICK_MS);
 
 	if (typeof workerTimer.unref === "function") {
 		workerTimer.unref();
 	}
 };
 
-const dequeue = () => {
-	const symbol = queue.shift();
-
-	if (symbol) {
-		queuedSymbols.delete(symbol);
+const stopWorker = () => {
+	if (workerTimer) {
+		clearInterval(workerTimer);
+		workerTimer = null;
 	}
-
-	return symbol;
 };
 
-export const scheduleQuoteFetch = (symbol: string, priority: boolean = false) => {
-	const normalized = normalizeSymbol(symbol);
-
-	if (!normalized) {
-		return;
-	}
-
-	if (isFetching(normalized)) {
-		return;
-	}
-
-	markFetching(normalized);
-
-	if (!queuedSymbols.has(normalized)) {
-		queuedSymbols.add(normalized);
-		if (priority) {
-			// Add to front of queue for priority items (e.g., ETFs)
-			queue.unshift(normalized);
-		} else {
-			// Add to end of queue for normal items
-			queue.push(normalized);
+const tick = () => {
+	if (queued.size === 0) {
+		if (inFlight.size === 0) {
+			stopWorker();
 		}
-	}
-
-	ensureWorker();
-};
-
-const processQueue = async () => {
-	if (isProcessing) {
-		return;
-	}
-
-	if (queue.length === 0) {
 		return;
 	}
 
 	const now = Date.now();
 
+	if (now < pausedUntil || inFlight.size >= MAX_IN_FLIGHT) {
+		return;
+	}
+
 	if (now - lastDispatchedAt < RATE_INTERVAL_MS) {
 		return;
 	}
 
-	const symbol = dequeue();
+	const next = takeHighestPriority();
 
-	if (!symbol) {
+	if (!next) {
 		return;
 	}
 
-	isProcessing = true;
+	const [symbol, priority] = next;
 	lastDispatchedAt = now;
+	inFlight.add(symbol);
+	void processSymbol(symbol, priority);
+};
 
+const takeHighestPriority = (): [string, number] | undefined => {
+	let best: string | undefined;
+	let bestPriority = -Infinity;
+
+	for (const [symbol, priority] of queued) {
+		if (priority > bestPriority) {
+			best = symbol;
+			bestPriority = priority;
+		}
+	}
+
+	if (best === undefined) {
+		return undefined;
+	}
+
+	queued.delete(best);
+	return [best, bestPriority];
+};
+
+const processSymbol = async (symbol: string, priority: number) => {
 	try {
-		const result = await fetchQuote(symbol);
+		const outcome = await fetchQuote(symbol);
 
-		if (result.success && typeof result.price === "number") {
-			try {
-				await saveQuoteToCache(symbol, result.price);
-			} catch (error) {
-				clearFetching(symbol);
-				throw error;
-			}
-		} else {
-			clearFetching(symbol);
+		switch (outcome.kind) {
+			case "ok":
+				await saveQuoteToCache(symbol, outcome.price, outcome.tradedAt);
+				break;
+			case "rate-limited":
+				pauseFor(outcome.retryAfterMs);
+				// Put it back so it is retried once the pause lifts
+				queued.set(symbol, Math.max(queued.get(symbol) ?? -Infinity, priority));
+				break;
+			case "failed":
+				logger.warn(`[quote-queue] No price for ${symbol}: ${outcome.reason}`);
+				await saveQuoteFailure(symbol, outcome.reason);
+				break;
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		logger.error(`[quote-queue] Failed to fetch ${symbol}: ${message}`);
-		clearFetching(symbol);
+		logger.error(`[quote-queue] Failed to process ${symbol}: ${message}`);
+		await saveQuoteFailure(symbol, "error").catch(() => {});
 	} finally {
-		isProcessing = false;
+		inFlight.delete(symbol);
 	}
 };
 
-const fetchQuote = async (symbol: string): Promise<QuoteQueueResult> => {
-	let lastError: string | undefined;
+const pauseFor = (ms: number) => {
+	const until = Date.now() + ms;
 
-	for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+	if (until > pausedUntil) {
+		pausedUntil = until;
+		logger.warn(`[quote-queue] Rate limited by Finnhub, pausing for ${Math.round(ms / 1000)}s`);
+	}
+};
+
+const fetchQuote = async (symbol: string): Promise<FetchOutcome> => {
+	let lastError = "unknown";
+
+	for (let attempt = 0; attempt <= NETWORK_RETRIES; attempt += 1) {
 		try {
 			const response = await finnhubQuote(symbol);
 
 			if (response.status === 429) {
-				const retryAfterHeader = Number(response.headers.get("retry-after"));
-				const backoff = Number.isFinite(retryAfterHeader)
-					? retryAfterHeader * 1000
-					: BASE_RETRY_DELAY_MS * (attempt + 1);
-				logger.warn(
-					`[quote-queue] Finnhub rate limit hit for ${symbol}, retrying in ${backoff}ms`
-				);
-				await sleep(backoff);
-				continue;
+				return { kind: "rate-limited", retryAfterMs: readRetryAfterMs(response) };
 			}
 
 			if (!response.ok) {
-				const body = await response.text().catch(() => "");
-				lastError = `status ${response.status} - ${body?.slice(0, 120) ?? "unknown error"}`;
-				break;
+				return { kind: "failed", reason: `http_${response.status}` };
 			}
+
+			respectRemainingBudget(response);
 
 			const payload = await response.json();
 			const price = parsePrice(payload);
 
-			if (typeof price === "number") {
-				return {
-					symbol,
-					price,
-					fetchedAt: Date.now(),
-					success: true
-				};
+			if (price === undefined) {
+				// Finnhub answers 200 with all-zero fields for symbols it does not know
+				return { kind: "failed", reason: "unknown_symbol" };
 			}
 
-			lastError = "Payload did not include a valid price";
-			break;
+			return { kind: "ok", price, tradedAt: parseTradedAt(payload) };
 		} catch (error) {
 			lastError = error instanceof Error ? error.message : String(error);
-			await sleep(BASE_RETRY_DELAY_MS * (attempt + 1));
+			await sleep(NETWORK_RETRY_DELAY_MS * (attempt + 1));
 		}
 	}
 
-	return {
-		symbol,
-		price: null,
-		fetchedAt: Date.now(),
-		success: false,
-		error: lastError
-	};
+	return { kind: "failed", reason: `network: ${lastError}` };
 };
 
-const parsePrice = (payload: any) => {
+const readRetryAfterMs = (response: Response) => {
+	const retryAfter = Number(response.headers.get("retry-after"));
+
+	if (Number.isFinite(retryAfter) && retryAfter > 0) {
+		return retryAfter * 1000;
+	}
+
+	return RATE_LIMIT_PAUSE_MS;
+};
+
+/** Finnhub reports the remaining per-minute budget; stop early instead of tripping a 429. */
+const respectRemainingBudget = (response: Response) => {
+	const remainingHeader = response.headers.get("x-ratelimit-remaining");
+
+	if (remainingHeader === null) {
+		return;
+	}
+
+	const remaining = Number(remainingHeader);
+	const resetAt = Number(response.headers.get("x-ratelimit-reset"));
+
+	if (!Number.isFinite(remaining) || remaining > 2) {
+		return;
+	}
+
+	const resetMs = Number.isFinite(resetAt) ? resetAt * 1000 - Date.now() : NaN;
+	pauseFor(Number.isFinite(resetMs) && resetMs > 0 ? resetMs + 500 : RATE_LIMIT_PAUSE_MS);
+};
+
+const parsePrice = (payload: any): number | undefined => {
 	const current = typeof payload?.c === "number" ? payload.c : undefined;
 
 	if (current && current > 0) {
@@ -188,13 +234,15 @@ const parsePrice = (payload: any) => {
 	const previousClose = typeof payload?.pc === "number" ? payload.pc : undefined;
 
 	if (previousClose && previousClose > 0) {
-		logger.warn("[quote-queue] Falling back to previous close for missing price");
 		return previousClose;
 	}
 
 	return undefined;
 };
 
-const normalizeSymbol = (symbol: string) => {
-	return symbol?.trim().toUpperCase();
+const parseTradedAt = (payload: any): number | null => {
+	const seconds = typeof payload?.t === "number" ? payload.t : 0;
+	return seconds > 0 ? seconds * 1000 : null;
 };
+
+const normalizeSymbol = (symbol: string) => symbol?.trim().toUpperCase();

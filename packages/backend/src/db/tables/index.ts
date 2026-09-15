@@ -7,6 +7,7 @@ export const createTables = async (db: Kysely<Database>): Promise<void> => {
 	try {
 		await db.schema
 			.createTable("users")
+			.ifNotExists()
 			.addColumn("id", "serial", (c) => c.unique().primaryKey())
 			.addColumn("public_id", "varchar(12)", (c) => c.notNull().unique())
 			.addColumn("username", "varchar(25)", (c) => c.notNull().unique())
@@ -25,6 +26,7 @@ export const createTables = async (db: Kysely<Database>): Promise<void> => {
 	try {
 		await db.schema
 			.createTable("lists")
+			.ifNotExists()
 			.addColumn("id", "serial", (c) => c.unique().primaryKey())
 			.addColumn("public_id", "varchar(12)", (c) => c.notNull().unique())
 			.addColumn("name", "varchar(100)", (c) => c.notNull())

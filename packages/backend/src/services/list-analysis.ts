@@ -1,394 +1,360 @@
-import logger from "@logger";
 import type { ListContent } from "@db/tables/List";
-import { etfScraper } from "@api/etf-scraper";
-import { fetchQuotes, getQuoteSnapshots } from "@utils/quotes";
-import { redisGetJSON, redisSetJSON } from "@redis";
+import { getEtfHoldings, type EtfHoldingsRecord } from "@services/etf-holdings";
+import { getMarketSession } from "@utils/market-hours";
+import { getQuoteSnapshots, type PriceStatus, type QuoteSnapshot } from "@utils/quotes";
 
-export type NormalizedEtfHolding = {
+/**
+ * Finnhub's free tier allows ~60 quotes a minute, so only the holdings that matter most
+ * get a live price. Every holding still gets a dollar exposure and portfolio percentage,
+ * which only need the ETF's own price, but the long tail gets no share count.
+ */
+export const MAX_QUOTED_HOLDINGS = 300;
+/** Rows returned per analysis; anything beyond is summarised in `tail`. */
+export const MAX_RETURNED_HOLDINGS = 500;
+/** The list's own symbols are priced first: their prices unlock everything else. */
+const INPUT_PRIORITY = 1000;
+
+export type InputKind = "etf" | "stock" | "unknown";
+
+/** One row of the user's list, as they entered it. */
+export type ListInput = {
 	symbol: string;
-	weight: number;
-	name?: string;
+	shares: number;
+	kind: InputKind;
+	price: number | null;
+	priceStatus: PriceStatus;
+	value: number | null;
+	percentOfPortfolio: number | null;
+	holdingsCount: number | null;
+	holdingsAsOf: string | null;
+	leveraged: boolean;
 };
 
-export type AggregatedHolding = {
+export type EtfContribution = {
+	etf: string;
+	/** Percent of the ETF this holding represents. */
+	weight: number;
+	exposure: number;
+};
+
+/** One security the user is exposed to, directly and/or through ETFs. */
+export type AnalyzedHolding = {
 	symbol: string;
-	totalShares: number;
+	name: string | null;
+	exposure: number;
+	percentOfPortfolio: number;
 	directShares: number;
-	viaEtfs: string[];
-	name?: string;
+	derivedShares: number | null;
+	totalShares: number | null;
+	price: number | null;
+	priceStatus: PriceStatus;
+	viaEtfs: EtfContribution[];
+};
+
+export type ExposureBucket = {
+	exposure: number;
+	percentOfPortfolio: number;
 };
 
 export type ListAnalysis = {
-	holdings: AggregatedHolding[];
-	failedTickers: string[];
-	quoteFailures: string[];
-	pendingQuotes: string[];
 	generatedAt: string;
+	marketOpen: boolean;
+	/** Market value of the priced inputs. */
+	totalValue: number;
+	/** False while any input is still waiting for a price. */
+	totalValueComplete: boolean;
+	inputs: ListInput[];
+	holdings: AnalyzedHolding[];
+	/** Holdings beyond MAX_RETURNED_HOLDINGS. */
+	tail: ExposureBucket & { count: number };
+	/** Cash, swaps, positions without a US ticker, and weight the provider left unattributed. */
+	cashAndOther: ExposureBucket & { items: { name: string; exposure: number }[] };
+	/** Inputs whose holdings lookup failed; treated as directly held stock for now. */
+	failedTickers: string[];
+	quotes: { requested: number; priced: number; pending: number; unavailable: number };
+	pendingQuotes: string[];
+	quoteFailures: string[];
 };
 
-export type FetchHoldingsResult = {
-	holdings: NormalizedEtfHolding[];
-	failed: boolean;
+export type ListAnalysisResult = {
+	analysis: ListAnalysis;
+	/** Every symbol whose price feeds this analysis; a quote update for one warrants a re-run. */
+	trackedSymbols: Set<string>;
 };
 
-export type AggregatedEntry = {
+type ExposureEntry = {
 	symbol: string;
-	totalShares: number;
+	name: string | null;
 	directShares: number;
-	viaEtfs: Set<string>;
-	name?: string;
+	directExposure: number;
+	viaExposure: number;
+	viaEtfs: EtfContribution[];
 };
 
-export type EtfDecompositionInput = {
-	symbol: string;
-	shares: number;
-	holdings: NormalizedEtfHolding[];
-};
+export const analyzeList = async (content: ListContent): Promise<ListAnalysisResult> => {
+	const entries = parseContent(content);
+	const records = await Promise.all(entries.map((entry) => getEtfHoldings(entry.symbol)));
 
-export type DecompositionPlan = {
-	aggregated: Map<string, AggregatedEntry>;
-	etfInputs: EtfDecompositionInput[];
-	failedTickers: Set<string>;
-	symbolsNeedingQuotes: Set<string>;
-};
+	// 1. Price the list's own symbols. Everything downstream hangs off these.
+	const inputSymbols = entries.map((entry) => entry.symbol);
+	const inputPriorities = new Map(inputSymbols.map((symbol) => [symbol, INPUT_PRIORITY]));
+	const inputQuotes = await getQuoteSnapshots(inputSymbols, inputPriorities);
 
-export const analyzeList = async (
-	content: ListContent,
-	options?: { allowStale?: boolean }
-): Promise<ListAnalysis> => {
-	const plan = await collectDecompositionPlan(content);
-	const quoteFailures = new Set<string>();
-	const pendingQuotes = new Set<string>();
+	// 2. Spread each input's market value over what it holds.
+	const exposures = new Map<string, ExposureEntry>();
+	const cashItems = new Map<string, number>();
+	const inputs: ListInput[] = [];
+	const failedTickers: string[] = [];
+	let totalValue = 0;
+	let totalValueComplete = true;
 
-	if (plan.symbolsNeedingQuotes.size > 0) {
-		// Extract ETF symbols for priority queueing
-		const etfSymbols = new Set(plan.etfInputs.map((etf) => etf.symbol));
+	entries.forEach((entry, index) => {
+		const record = records[index];
+		const quote = inputQuotes.get(entry.symbol);
+		const kind = classifyInput(record);
+		const price = quote?.price ?? null;
+		const value = price !== null ? entry.shares * price : null;
 
-		// Get quote snapshots to determine which quotes are pending vs failed
-		const quoteSnapshots = await getQuoteSnapshots(Array.from(plan.symbolsNeedingQuotes), {
-			...options,
-			etfSymbols
+		if (kind === "unknown") {
+			failedTickers.push(entry.symbol);
+		}
+
+		if (value === null) {
+			totalValueComplete = false;
+		} else {
+			totalValue += value;
+		}
+
+		inputs.push({
+			symbol: entry.symbol,
+			shares: entry.shares,
+			kind,
+			price,
+			priceStatus: quote?.status ?? "pending",
+			value,
+			percentOfPortfolio: null,
+			holdingsCount: kind === "etf" ? record.holdings.length : null,
+			holdingsAsOf: kind === "etf" ? record.asOf : null,
+			leveraged: kind === "etf" && record.leveraged
 		});
 
-		// Build quotes map and track pending/failed quotes
-		const quotes = new Map<string, number>();
-		for (const [symbol, snapshot] of quoteSnapshots.entries()) {
-			if (typeof snapshot.price === "number" && Number.isFinite(snapshot.price)) {
-				quotes.set(symbol, snapshot.price);
-			} else if (snapshot.isUpdating) {
-				// Quote is scheduled/being fetched
-				pendingQuotes.add(symbol);
-			} else {
-				// Quote is not available and not being fetched (actual failure)
-				quoteFailures.add(symbol);
+		if (kind !== "etf") {
+			// Directly held (or unresolvable, which is treated the same until it resolves)
+			const aggregate = getOrCreateExposure(exposures, entry.symbol);
+			aggregate.directShares += entry.shares;
+			aggregate.directExposure += value ?? 0;
+			return;
+		}
+
+		if (value === null) {
+			// Nothing to spread until the ETF itself has a price
+			return;
+		}
+
+		let reportedWeight = 0;
+
+		for (const holding of record.holdings) {
+			const exposure = (value * holding.weight) / 100;
+			const aggregate = getOrCreateExposure(exposures, holding.symbol);
+			aggregate.viaExposure += exposure;
+			aggregate.viaEtfs.push({ etf: entry.symbol, weight: holding.weight, exposure });
+			reportedWeight += holding.weight;
+
+			if (holding.name && !aggregate.name) {
+				aggregate.name = holding.name;
 			}
 		}
 
-		for (const etf of plan.etfInputs) {
-			const etfPrice = quotes.get(etf.symbol);
-
-			if (!isValidPrice(etfPrice)) {
-				plan.failedTickers.add(etf.symbol);
-				// Don't add to quoteFailures here - it's already handled above
-				continue;
-			}
-
-			for (const holding of etf.holdings) {
-				const holdingPrice = quotes.get(holding.symbol);
-
-				if (!isValidPrice(holdingPrice)) {
-					// Don't add to quoteFailures here - it's already handled above
-					continue;
-				}
-
-				const capitalAllocation = etf.shares * etfPrice * (holding.weight / 100);
-				const derivedShares = capitalAllocation / holdingPrice;
-
-				if (!Number.isFinite(derivedShares) || derivedShares <= 0) {
-					continue;
-				}
-
-				const entry = getOrCreateAggregate(plan.aggregated, holding.symbol);
-				entry.totalShares += derivedShares;
-				entry.viaEtfs.add(etf.symbol);
-				if (holding.name && !entry.name) {
-					entry.name = holding.name;
-				}
-			}
+		for (const item of record.nonEquity) {
+			addCash(cashItems, item.name, (value * item.weight) / 100);
+			reportedWeight += item.weight;
 		}
-	}
 
-	return buildListAnalysis(plan.aggregated, {
-		failedTickers: plan.failedTickers,
-		quoteFailures,
-		pendingQuotes
+		// Weights rarely sum to exactly 100: positions too small to report, plus rounding
+		const remainder = 100 - reportedWeight;
+
+		if (remainder > 0.005) {
+			addCash(cashItems, "Unreported / rounding", (value * remainder) / 100);
+		}
 	});
-};
 
-export const buildListAnalysis = (
-	aggregated: Map<string, AggregatedEntry>,
-	metadata: {
-		failedTickers: Set<string>;
-		quoteFailures: Set<string>;
-		pendingQuotes: Set<string>;
-	}
-): ListAnalysis => {
-	return {
-		holdings: serializeAggregatedHoldings(aggregated),
-		failedTickers: Array.from(metadata.failedTickers),
-		quoteFailures: Array.from(metadata.quoteFailures),
-		pendingQuotes: Array.from(metadata.pendingQuotes),
-		generatedAt: new Date().toISOString()
-	};
-};
-
-export const serializeAggregatedHoldings = (
-	aggregated: Map<string, AggregatedEntry>
-): AggregatedHolding[] => {
-	return Array.from(aggregated.values())
-		.map((holding) => ({
-			symbol: holding.symbol,
-			totalShares: roundToFourDecimals(holding.totalShares),
-			directShares: roundToFourDecimals(holding.directShares),
-			viaEtfs: Array.from(holding.viaEtfs).sort(),
-			...(holding.name && { name: holding.name })
-		}))
-		.sort((a, b) => b.totalShares - a.totalShares);
-};
-
-export const extractListSymbols = async (content: ListContent): Promise<Set<string>> => {
-	const plan = await collectDecompositionPlan(content);
-	const symbols = new Set<string>();
-
-	// Add all direct holdings
-	for (const ticker of Object.keys(content)) {
-		symbols.add(ticker.trim().toUpperCase());
+	for (const input of inputs) {
+		input.percentOfPortfolio =
+			input.value !== null && totalValue > 0
+				? round((input.value / totalValue) * 100, 4)
+				: null;
 	}
 
-	// Add all ETF symbols
-	for (const etf of plan.etfInputs) {
-		symbols.add(etf.symbol);
-	}
-
-	// Add all holding symbols from ETFs
-	for (const etf of plan.etfInputs) {
-		for (const holding of etf.holdings) {
-			symbols.add(holding.symbol);
-		}
-	}
-
-	// Add all aggregated symbols (direct + derived)
-	for (const symbol of plan.aggregated.keys()) {
-		symbols.add(symbol);
-	}
-
-	return symbols;
-};
-
-export const collectDecompositionPlan = async (
-	content: ListContent
-): Promise<DecompositionPlan> => {
-	const aggregated = new Map<string, AggregatedEntry>();
-	const failedTickers = new Set<string>();
-	const symbolsNeedingQuotes = new Set<string>();
-	const etfInputs: EtfDecompositionInput[] = [];
-
-	const entries = Object.entries(content ?? {});
-
-	await Promise.all(
-		entries.map(async ([rawTicker, rawShares]) => {
-			const ticker = rawTicker.trim().toUpperCase();
-			const shares = Number(rawShares);
-
-			if (!ticker || !Number.isFinite(shares) || shares <= 0) {
-				return;
-			}
-
-			const { holdings, failed } = (await fetchEtfHoldings(ticker)) ?? {};
-
-			if (failed) {
-				failedTickers.add(ticker);
-			}
-
-			// No holdings found, add shares as direct shares
-			if (!holdings || holdings.length === 0) {
-				const entry = getOrCreateAggregate(aggregated, ticker);
-				entry.totalShares += shares;
-				entry.directShares += shares;
-				return;
-			}
-
-			etfInputs.push({
-				symbol: ticker,
-				shares,
-				holdings
-			});
-
-			// Add ETFs to quote fetch AND their holdings
-			symbolsNeedingQuotes.add(ticker);
-			holdings.forEach((holding) => symbolsNeedingQuotes.add(holding.symbol));
-		})
+	// 3. Rank the look-through holdings and price the ones that matter.
+	const ranked = Array.from(exposures.values()).sort(
+		(a, b) => totalExposure(b) - totalExposure(a)
 	);
+	const holdingPriorities = new Map<string, number>();
+
+	for (const aggregate of ranked) {
+		if (holdingPriorities.size >= MAX_QUOTED_HOLDINGS) {
+			break;
+		}
+
+		if (inputPriorities.has(aggregate.symbol)) {
+			continue;
+		}
+
+		const exposure = totalExposure(aggregate);
+
+		if (exposure <= 0) {
+			break;
+		}
+
+		holdingPriorities.set(aggregate.symbol, totalValue > 0 ? (exposure / totalValue) * 100 : 0);
+	}
+
+	const holdingSymbols = ranked
+		.map((aggregate) => aggregate.symbol)
+		.filter((symbol) => !inputPriorities.has(symbol));
+	const holdingQuotes = await getQuoteSnapshots(holdingSymbols, holdingPriorities);
+	const quoteFor = (symbol: string): QuoteSnapshot | undefined =>
+		inputQuotes.get(symbol) ?? holdingQuotes.get(symbol);
+
+	// 4. Assemble the rows.
+	const rows: AnalyzedHolding[] = ranked.map((aggregate) => {
+		const quote = quoteFor(aggregate.symbol);
+		const price = quote?.price ?? null;
+		const exposure = totalExposure(aggregate);
+		const derivedShares =
+			aggregate.viaEtfs.length === 0
+				? 0
+				: price !== null
+					? aggregate.viaExposure / price
+					: null;
+
+		return {
+			symbol: aggregate.symbol,
+			name: aggregate.name,
+			exposure: round(exposure, 2),
+			percentOfPortfolio: totalValue > 0 ? round((exposure / totalValue) * 100, 4) : 0,
+			directShares: round(aggregate.directShares, 4),
+			derivedShares: derivedShares === null ? null : round(derivedShares, 4),
+			totalShares:
+				derivedShares === null ? null : round(aggregate.directShares + derivedShares, 4),
+			price,
+			priceStatus: quote?.status ?? "not-requested",
+			viaEtfs: aggregate.viaEtfs
+				.sort((a, b) => b.exposure - a.exposure)
+				.map((via) => ({
+					...via,
+					weight: round(via.weight, 4),
+					exposure: round(via.exposure, 2)
+				}))
+		};
+	});
+
+	const returned = rows.slice(0, MAX_RETURNED_HOLDINGS);
+	const tailRows = rows.slice(MAX_RETURNED_HOLDINGS);
+	const tailExposure = tailRows.reduce((sum, row) => sum + row.exposure, 0);
+	const cashEntries = Array.from(cashItems.entries()).sort((a, b) => b[1] - a[1]);
+	const cashExposure = cashEntries.reduce((sum, [, exposure]) => sum + exposure, 0);
+
+	// 5. Quote bookkeeping for the UI.
+	const requestedSymbols = [...inputPriorities.keys(), ...holdingPriorities.keys()];
+	const pendingQuotes: string[] = [];
+	const quoteFailures: string[] = [];
+	let priced = 0;
+
+	for (const symbol of requestedSymbols) {
+		const status = quoteFor(symbol)?.status;
+
+		if (status === "fresh" || status === "stale") {
+			priced += 1;
+		} else if (status === "pending") {
+			pendingQuotes.push(symbol);
+		} else if (status === "unavailable") {
+			quoteFailures.push(symbol);
+		}
+	}
+
+	const analysis: ListAnalysis = {
+		generatedAt: new Date().toISOString(),
+		marketOpen: getMarketSession().isOpen,
+		totalValue: round(totalValue, 2),
+		totalValueComplete,
+		inputs,
+		holdings: returned,
+		tail: {
+			count: tailRows.length,
+			exposure: round(tailExposure, 2),
+			percentOfPortfolio: totalValue > 0 ? round((tailExposure / totalValue) * 100, 4) : 0
+		},
+		cashAndOther: {
+			exposure: round(cashExposure, 2),
+			percentOfPortfolio: totalValue > 0 ? round((cashExposure / totalValue) * 100, 4) : 0,
+			items: cashEntries.map(([name, exposure]) => ({ name, exposure: round(exposure, 2) }))
+		},
+		failedTickers,
+		quotes: {
+			requested: requestedSymbols.length,
+			priced,
+			pending: pendingQuotes.length,
+			unavailable: quoteFailures.length
+		},
+		pendingQuotes,
+		quoteFailures
+	};
 
 	return {
-		aggregated,
-		etfInputs,
-		failedTickers,
-		symbolsNeedingQuotes
+		analysis,
+		trackedSymbols: new Set([...inputSymbols, ...holdingSymbols])
 	};
 };
 
-const ETF_HOLDINGS_CACHE_PREFIX = "etf:holdings";
-const ETF_HOLDINGS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const parseContent = (content: ListContent) => {
+	const entries: { symbol: string; shares: number }[] = [];
 
-const buildEtfHoldingsCacheKey = (symbol: string) => {
-	const normalized = symbol.trim().toUpperCase();
-	return `${ETF_HOLDINGS_CACHE_PREFIX}:${normalized}`;
+	for (const [rawTicker, rawShares] of Object.entries(content ?? {})) {
+		const symbol = rawTicker.trim().toUpperCase();
+		const shares = Number(rawShares);
+
+		if (symbol && Number.isFinite(shares) && shares > 0) {
+			entries.push({ symbol, shares });
+		}
+	}
+
+	return entries;
 };
 
-export const fetchEtfHoldings = async (
-	symbol: string
-): Promise<FetchHoldingsResult | undefined> => {
-	const normalizedSymbol = symbol.trim().toUpperCase();
-	const cacheKey = buildEtfHoldingsCacheKey(normalizedSymbol);
-
-	// Try to get from cache first
-	try {
-		const cached = await redisGetJSON<FetchHoldingsResult>(cacheKey);
-		if (cached) {
-			logger.debug(`[list] Using cached ETF holdings for ${normalizedSymbol}`);
-			return cached;
-		}
-	} catch (error) {
-		logger.warn(
-			`[list] Failed to read ETF holdings cache for ${normalizedSymbol}: ${
-				error instanceof Error ? error.message : String(error)
-			}`
-		);
-		// Continue to fetch from API if cache read fails
+const classifyInput = (record: EtfHoldingsRecord): InputKind => {
+	if (record.status === "error") {
+		return "unknown";
 	}
 
-	// Cache miss or error - fetch from API
-	try {
-		const response = await etfScraper(normalizedSymbol);
-
-		if (!isRecord(response)) {
-			logger.warn(`[list] Invalid response from ETF scraper for ${normalizedSymbol}`);
-			const result: FetchHoldingsResult = {
-				holdings: [],
-				failed: true
-			};
-			// Cache failed results too
-			// TODO: (with shorter TTL might be better, but using same for simplicity)
-			await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
-				// Ignore cache write errors
-			});
-			return result;
-		}
-
-		const failed = response.failed === true;
-		const normalizedHoldings = parseHoldings(response);
-
-		const result: FetchHoldingsResult = {
-			holdings: normalizedHoldings,
-			failed
-		};
-
-		// Cache the result
-		await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
-			// Ignore cache write errors - logging is optional
-		});
-
-		return result;
-	} catch (error) {
-		logger.warn(
-			`[list] Failed to fetch ETF holdings for ${normalizedSymbol}: ${
-				error instanceof Error ? error.message : String(error)
-			}`
-		);
-		const result: FetchHoldingsResult = {
-			holdings: [],
-			failed: true
-		};
-		// Cache failed results to avoid repeated API calls for invalid symbols
-		await redisSetJSON(cacheKey, result, ETF_HOLDINGS_CACHE_TTL_MS).catch(() => {
-			// Ignore cache write errors
-		});
-		return result;
-	}
+	return record.status === "etf" && record.holdings.length > 0 ? "etf" : "stock";
 };
 
-export const parseHoldings = (payload: unknown): NormalizedEtfHolding[] => {
-	if (!isRecord(payload)) {
-		return [];
-	}
+const getOrCreateExposure = (map: Map<string, ExposureEntry>, symbol: string) => {
+	let entry = map.get(symbol);
 
-	const holdingsRaw = payload.holdings;
-
-	if (!Array.isArray(holdingsRaw)) {
-		return [];
-	}
-
-	const normalized: NormalizedEtfHolding[] = [];
-
-	for (const item of holdingsRaw) {
-		if (!isRecord(item)) {
-			continue;
-		}
-
-		const symbol = typeof item.symbol === "string" ? item.symbol.trim().toUpperCase() : "";
-		const weight =
-			typeof item.weight === "number"
-				? item.weight
-				: typeof item.weight === "string"
-					? parseFloat(item.weight.replace("%", ""))
-					: 0;
-		const name = typeof item.name === "string" ? item.name.trim() : undefined;
-
-		if (!symbol || !Number.isFinite(weight) || weight <= 0) {
-			continue;
-		}
-
-		normalized.push({
+	if (!entry) {
+		entry = {
 			symbol,
-			weight,
-			...(name && { name })
-		});
+			name: null,
+			directShares: 0,
+			directExposure: 0,
+			viaExposure: 0,
+			viaEtfs: []
+		};
+		map.set(symbol, entry);
 	}
 
-	return normalized;
+	return entry;
 };
 
-export const getOrCreateAggregate = (
-	aggregated: Map<string, AggregatedEntry>,
-	symbol: string
-): AggregatedEntry => {
-	const existing = aggregated.get(symbol);
+const totalExposure = (entry: ExposureEntry) => entry.directExposure + entry.viaExposure;
 
-	if (existing) {
-		return existing;
-	}
-
-	const newEntry: AggregatedEntry = {
-		symbol,
-		totalShares: 0,
-		directShares: 0,
-		viaEtfs: new Set<string>()
-	};
-
-	aggregated.set(symbol, newEntry);
-
-	return newEntry;
+const addCash = (map: Map<string, number>, name: string, exposure: number) => {
+	map.set(name, (map.get(name) ?? 0) + exposure);
 };
 
-export const roundToFourDecimals = (value: number) => {
-	return Math.round(value * 10000) / 10000;
-};
-
-export const isValidPrice = (price: number | undefined): price is number => {
-	return typeof price === "number" && Number.isFinite(price) && price > 0;
-};
-
-const isRecord = (value: unknown): value is Record<string, any> => {
-	return typeof value === "object" && value !== null;
+const round = (value: number, decimals: number) => {
+	const factor = 10 ** decimals;
+	return Math.round(value * factor) / factor;
 };

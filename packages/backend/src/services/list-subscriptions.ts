@@ -1,27 +1,32 @@
+import type { Server as SocketIOServer } from "socket.io";
+
 import logger from "@logger";
 import db from "@db";
-import { analyzeList, extractListSymbols } from "@services/list-analysis";
-import { subscribeToQuoteUpdates } from "@services/quote-cache";
-import { getSocketIO } from "./socket";
-import type { QuoteBroadcastPayload } from "./quote-cache";
+import type { ListContent } from "@db/tables/List";
+import { analyzeList } from "@services/list-analysis";
+import { subscribeToQuoteUpdates, type QuoteBroadcastPayload } from "@services/quote-cache";
 
-const THROTTLE_MS = 5000; // 5 seconds
+/** Quotes arrive about once a second; batch them into one re-analysis. */
+const DEBOUNCE_MS = 3000;
+/** While prices are still outstanding, re-run even if no broadcast shows up. */
+const INCOMPLETE_RECHECK_MS = 30 * 1000;
 
-// Track which sockets are subscribed to which lists
-const listSubscriptions = new Map<string, Set<string>>(); // listId -> Set<socketId>
+type Subscription = {
+	sockets: Set<string>;
+	content: ListContent;
+	trackedSymbols: Set<string>;
+	debounce: NodeJS.Timeout | null;
+	recheck: NodeJS.Timeout | null;
+};
 
-// Track which symbols are in each list (for fast lookup)
-const listSymbols = new Map<string, Set<string>>(); // listId -> Set<symbol>
+const subscriptions = new Map<string, Subscription>();
 
-// Track pending update timers for throttling
-const pendingUpdates = new Map<string, NodeJS.Timeout>(); // listId -> timeout
-
-// Track list content cache (to avoid re-fetching from DB)
-const listContentCache = new Map<string, Record<string, number>>(); // listId -> content
-
+let io: SocketIOServer | null = null;
 let unsubscribeQuoteUpdates: (() => Promise<void>) | null = null;
 
-export const initListSubscriptions = () => {
+export const initListSubscriptions = (server: SocketIOServer) => {
+	io = server;
+
 	if (unsubscribeQuoteUpdates) {
 		return;
 	}
@@ -45,10 +50,9 @@ export const subscribeToList = async (
 	socketId: string,
 	userId: number
 ): Promise<void> => {
-	// Verify user has access to this list
 	const list = await db
 		.selectFrom("lists")
-		.select(["publicId", "content", "ownerId"])
+		.select(["publicId", "content"])
 		.where("publicId", "=", listId)
 		.where("ownerId", "=", userId)
 		.executeTakeFirst();
@@ -60,139 +64,142 @@ export const subscribeToList = async (
 		return;
 	}
 
-	// Add subscription
-	if (!listSubscriptions.has(listId)) {
-		listSubscriptions.set(listId, new Set());
+	let subscription = subscriptions.get(listId);
+
+	if (!subscription) {
+		subscription = {
+			sockets: new Set(),
+			content: list.content,
+			trackedSymbols: new Set(),
+			debounce: null,
+			recheck: null
+		};
+		subscriptions.set(listId, subscription);
 	}
-	listSubscriptions.get(listId)!.add(socketId);
 
-	// Cache list content
-	listContentCache.set(listId, list.content);
+	subscription.sockets.add(socketId);
+	subscription.content = list.content;
 
-	// Determine symbols in this list (direct + via ETFs)
-	const symbols = await extractListSymbols(list.content);
-	listSymbols.set(listId, symbols);
+	logger.info(`[list-subscriptions] Socket ${socketId} subscribed to list ${listId}`);
 
-	logger.info(
-		`[list-subscriptions] Socket ${socketId} subscribed to list ${listId} (${symbols.size} symbols)`
-	);
+	// Run once right away: it fills in trackedSymbols and catches anything that changed
+	// while the socket was (re)connecting.
+	scheduleUpdate(listId, 0);
 };
 
 export const unsubscribeFromList = (listId: string, socketId: string): void => {
-	const subscribers = listSubscriptions.get(listId);
+	const subscription = subscriptions.get(listId);
 
-	if (!subscribers) {
+	if (!subscription) {
 		return;
 	}
 
-	subscribers.delete(socketId);
+	subscription.sockets.delete(socketId);
 
-	if (subscribers.size === 0) {
-		// Clean up if no more subscribers
-		listSubscriptions.delete(listId);
-		listSymbols.delete(listId);
-		listContentCache.delete(listId);
-
-		// Clear any pending update
-		const timeout = pendingUpdates.get(listId);
-		if (timeout) {
-			clearTimeout(timeout);
-			pendingUpdates.delete(listId);
-		}
+	if (subscription.sockets.size === 0) {
+		clearTimers(subscription);
+		subscriptions.delete(listId);
 	}
 
 	logger.info(`[list-subscriptions] Socket ${socketId} unsubscribed from list ${listId}`);
 };
 
 export const unsubscribeSocket = (socketId: string): void => {
-	const listsToCleanup: string[] = [];
-
-	for (const [listId, subscribers] of listSubscriptions.entries()) {
-		if (subscribers.has(socketId)) {
-			listsToCleanup.push(listId);
+	for (const [listId, subscription] of subscriptions.entries()) {
+		if (subscription.sockets.has(socketId)) {
+			unsubscribeFromList(listId, socketId);
 		}
 	}
+};
 
-	for (const listId of listsToCleanup) {
-		unsubscribeFromList(listId, socketId);
+/** Keep a live subscription in step with an edit so viewers see the new holdings. */
+export const updateSubscribedListContent = (listId: string, content: ListContent): void => {
+	const subscription = subscriptions.get(listId);
+
+	if (!subscription) {
+		return;
 	}
+
+	subscription.content = content;
+	scheduleUpdate(listId, 0);
 };
 
 const handleQuoteUpdate = (payload: QuoteBroadcastPayload): void => {
-	const { symbol } = payload;
-
-	// Find all lists that contain this symbol
-	for (const [listId, symbols] of listSymbols.entries()) {
-		if (symbols.has(symbol)) {
-			// This list is affected by the quote update
-			scheduleListUpdate(listId);
+	for (const [listId, subscription] of subscriptions.entries()) {
+		if (subscription.trackedSymbols.has(payload.symbol)) {
+			scheduleUpdate(listId, DEBOUNCE_MS);
 		}
 	}
 };
 
-const scheduleListUpdate = (listId: string): void => {
-	// If there's already a pending update, don't schedule another (throttling)
-	if (pendingUpdates.has(listId)) {
+const scheduleUpdate = (listId: string, delayMs: number): void => {
+	const subscription = subscriptions.get(listId);
+
+	if (!subscription || subscription.debounce) {
 		return;
 	}
 
-	// Check if there are any subscribers
-	const subscribers = listSubscriptions.get(listId);
-	if (!subscribers || subscribers.size === 0) {
-		return;
-	}
-
-	// Schedule update after throttle period
-	const timeout = setTimeout(() => {
-		pendingUpdates.delete(listId);
+	subscription.debounce = setTimeout(() => {
+		subscription.debounce = null;
 		void processListUpdate(listId);
-	}, THROTTLE_MS);
-
-	pendingUpdates.set(listId, timeout);
+	}, delayMs);
 };
 
 const processListUpdate = async (listId: string): Promise<void> => {
-	const subscribers = listSubscriptions.get(listId);
+	const subscription = subscriptions.get(listId);
 
-	if (!subscribers || subscribers.size === 0) {
-		return;
-	}
-
-	const content = listContentCache.get(listId);
-
-	if (!content) {
-		logger.warn(`[list-subscriptions] No cached content for list ${listId}`);
+	if (!subscription || subscription.sockets.size === 0) {
 		return;
 	}
 
 	try {
-		// Recalculate analysis (uses cached quotes, allows stale)
-		const analysis = await analyzeList(content, { allowStale: true });
+		const { analysis, trackedSymbols } = await analyzeList(subscription.content);
+		subscription.trackedSymbols = trackedSymbols;
 
-		// Send update to all subscribed sockets via room
-		const io = getSocketIO();
 		if (!io) {
 			logger.warn("[list-subscriptions] Socket.IO server not available");
 			return;
 		}
 
-		const payload = {
-			listId,
-			analysis
-		};
-
-		// Emit to the room for this list (all sockets subscribed to this list are in the room)
-		const roomName = `list:${listId}`;
-		io.to(roomName).emit("list:analysis:update", payload);
+		io.to(`list:${listId}`).emit("list:analysis:update", { listId, analysis });
 
 		logger.debug(
-			`[list-subscriptions] Sent analysis update for list ${listId} to ${subscribers.size} subscribers`
+			`[list-subscriptions] Sent analysis for list ${listId} to ${subscription.sockets.size} socket(s): ${analysis.quotes.priced}/${analysis.quotes.requested} priced`
 		);
+
+		if (subscription.recheck) {
+			clearTimeout(subscription.recheck);
+			subscription.recheck = null;
+		}
+
+		const incomplete =
+			analysis.pendingQuotes.length > 0 ||
+			analysis.failedTickers.length > 0 ||
+			!analysis.totalValueComplete;
+
+		if (incomplete) {
+			subscription.recheck = setTimeout(() => {
+				subscription.recheck = null;
+				scheduleUpdate(listId, 0);
+			}, INCOMPLETE_RECHECK_MS);
+		}
 	} catch (error) {
 		logger.error(
 			`[list-subscriptions] Failed to process update for list ${listId}: ${
 				error instanceof Error ? error.message : String(error)
 			}`
 		);
+	}
+};
+
+const clearTimers = (subscription: Subscription) => {
+	if (subscription.debounce) {
+		clearTimeout(subscription.debounce);
+		subscription.debounce = null;
+	}
+
+	if (subscription.recheck) {
+		clearTimeout(subscription.recheck);
+		subscription.recheck = null;
 	}
 };

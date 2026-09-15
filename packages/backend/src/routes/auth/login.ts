@@ -8,8 +8,6 @@ import { generateToken, setAuthCookie } from "./_shared";
 const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
-	console.log("login");
-
 	try {
 		const { email, password } = req.body ?? {};
 

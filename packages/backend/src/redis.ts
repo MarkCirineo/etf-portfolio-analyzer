@@ -125,6 +125,33 @@ export const redisGetJSON = async <T extends RedisJSON>(key: string): Promise<T 
 	}
 };
 
+export const redisMGetJSON = async <T extends RedisJSON>(
+	keys: string[]
+): Promise<Map<string, T>> => {
+	const result = new Map<string, T>();
+
+	if (keys.length === 0) {
+		return result;
+	}
+
+	const client = getRedisClient();
+	const payloads = await client.mget(...keys);
+
+	payloads.forEach((payload, index) => {
+		if (!payload) {
+			return;
+		}
+
+		try {
+			result.set(keys[index], JSON.parse(payload) as T);
+		} catch (error) {
+			logger.warn(`[redis] Failed to parse JSON for key ${keys[index]}: ${String(error)}`);
+		}
+	});
+
+	return result;
+};
+
 export const redisSetJSON = async (key: string, value: RedisJSON, ttlMs?: number) => {
 	const client = getRedisClient();
 	const serialized = JSON.stringify(value);
@@ -135,6 +162,15 @@ export const redisSetJSON = async (key: string, value: RedisJSON, ttlMs?: number
 	}
 
 	await client.set(key, serialized);
+};
+
+export const redisDel = async (...keys: string[]) => {
+	if (keys.length === 0) {
+		return;
+	}
+
+	const client = getRedisClient();
+	await client.del(...keys);
 };
 
 export const publishMessage = async (channel: string, payload: RedisJSON) => {

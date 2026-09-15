@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
+import { updateSubscribedListContent } from "@services/list-subscriptions";
 import { resolveOwnerId, sanitizeHoldings } from "./_shared";
 
 const router = Router();
@@ -62,6 +63,8 @@ router.patch(
 			if (!updatedList) {
 				throw new HttpError("List not found", 404);
 			}
+
+			updateSubscribedListContent(updatedList.id, sanitizedHoldings);
 
 			logger.info(
 				`[list] User ${ownerId} updated list ${updatedList.id} with ${Object.keys(sanitizedHoldings).length} holdings`

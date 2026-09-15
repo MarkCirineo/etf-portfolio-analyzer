@@ -34,10 +34,9 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 			throw new HttpError("List not found", 404);
 		}
 
-		// Analyze list with cached data, allowing stale data for immediate results
-		// Missing quotes will be queued and fetched via quote-queue
-		// Updates will be broadcast via quote-cache pub/sub → Socket.IO
-		const analysis = await analyzeList(list.content, { allowStale: true });
+		// Computed from cached data; missing prices are queued and streamed to the page
+		// over Socket.IO as they arrive
+		const { analysis } = await analyzeList(list.content);
 
 		res.status(200).send({
 			data: {

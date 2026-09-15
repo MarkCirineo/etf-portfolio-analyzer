@@ -2,7 +2,6 @@ declare const config: {
 	PORT: number;
 	finnhub_api_key: string;
 	alpha_vantage_api_key: string;
-	etf_scraper_url: string;
 	jwt_secret: string;
 	jwt_expires_in: string;
 	db: {

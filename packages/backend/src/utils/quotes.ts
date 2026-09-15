@@ -1,110 +1,95 @@
-import logger from "@logger";
-import { getCachedQuote, isQuoteFresh, type QuoteCacheEntry } from "@services/quote-cache";
-import { scheduleQuoteFetch } from "@services/quote-queue";
+import { getCachedQuotes, getQuoteFailures, isQuoteFresh } from "@services/quote-cache";
+import { isQuoteQueued, scheduleQuoteFetch } from "@services/quote-queue";
 
-type QuoteSnapshot = {
+export type PriceStatus =
+	/** Cached and within its refresh window. */
+	| "fresh"
+	/** Cached but past its refresh window; still usable, a refresh is queued if requested. */
+	| "stale"
+	/** No price yet; a fetch is queued or in flight. */
+	| "pending"
+	/** The provider could not price it recently; not retried until that cools off. */
+	| "unavailable"
+	/** No price and nobody asked for one (below the fetch cap). */
+	| "not-requested";
+
+export type QuoteSnapshot = {
 	symbol: string;
 	price: number | null;
 	updatedAt: number | null;
-	isFresh: boolean;
-	isUpdating: boolean;
+	status: PriceStatus;
 };
 
-export const fetchQuotes = async (
-	symbols: string[],
-	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
-): Promise<Map<string, number>> => {
-	const snapshots = await getQuoteSnapshots(symbols, options);
-	const result = new Map<string, number>();
-
-	for (const snapshot of snapshots.values()) {
-		if (typeof snapshot.price === "number" && Number.isFinite(snapshot.price)) {
-			result.set(snapshot.symbol, snapshot.price);
-		}
-	}
-
-	return result;
-};
-
+/**
+ * Reads cached prices for `symbols` in one round trip and queues a fetch for any that are
+ * missing or stale — but only for symbols present in `priorities`. Symbols without a
+ * priority are still looked up (a price cached for another list is just as good) but are
+ * never fetched on this list's behalf.
+ */
 export const getQuoteSnapshots = async (
 	symbols: string[],
-	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
+	priorities: Map<string, number>
 ): Promise<Map<string, QuoteSnapshot>> => {
-	if (!symbols || symbols.length === 0) {
-		return new Map();
-	}
-
 	const uniqueSymbols = Array.from(
-		new Set(
-			symbols
-				.map((symbol) => normalizeSymbol(symbol))
-				.filter((symbol): symbol is string => Boolean(symbol))
-		)
+		new Set(symbols.map(normalizeSymbol).filter((symbol): symbol is string => Boolean(symbol)))
 	);
+	const result = new Map<string, QuoteSnapshot>();
 
 	if (uniqueSymbols.length === 0) {
-		return new Map();
+		return result;
 	}
 
-	const result = new Map<string, QuoteSnapshot>();
-	const pendingFetches: Promise<void>[] = [];
+	const [cached, failures] = await Promise.all([
+		getCachedQuotes(uniqueSymbols),
+		getQuoteFailures(uniqueSymbols)
+	]);
 
 	for (const symbol of uniqueSymbols) {
-		pendingFetches.push(
-			resolveSnapshot(symbol, options).then((snapshot) => {
-				result.set(symbol, snapshot);
-			})
+		const entry = cached.get(symbol);
+		const failed = failures.has(symbol);
+		const priority = priorities.get(symbol);
+		const requested = priority !== undefined;
+
+		if (entry && isQuoteFresh(entry)) {
+			result.set(symbol, snapshot(symbol, entry.price, entry.updatedAt, "fresh"));
+			continue;
+		}
+
+		if (entry) {
+			// Serve the stale price and refresh it in the background, unless the last
+			// refresh just failed, in which case the stale price is the best we have.
+			if (requested && !failed) {
+				scheduleQuoteFetch(symbol, priority);
+			}
+			result.set(symbol, snapshot(symbol, entry.price, entry.updatedAt, "stale"));
+			continue;
+		}
+
+		if (failed) {
+			result.set(symbol, snapshot(symbol, null, null, "unavailable"));
+			continue;
+		}
+
+		if (requested) {
+			scheduleQuoteFetch(symbol, priority);
+			result.set(symbol, snapshot(symbol, null, null, "pending"));
+			continue;
+		}
+
+		result.set(
+			symbol,
+			snapshot(symbol, null, null, isQuoteQueued(symbol) ? "pending" : "not-requested")
 		);
 	}
 
-	await Promise.all(pendingFetches);
-
 	return result;
 };
 
-const resolveSnapshot = async (
+const snapshot = (
 	symbol: string,
-	options?: { allowStale?: boolean; etfSymbols?: Set<string> }
-): Promise<QuoteSnapshot> => {
-	const cached = await getCachedQuote(symbol);
-
-	if (cached && isQuoteFresh(cached)) {
-		// Fresh cache, return immediately (no need to schedule refresh)
-		return serializeSnapshot(symbol, cached, true, false);
-	}
-
-	// Cache is stale or missing - schedule fetch and return what we have
-	// Prioritize ETFs by adding them to the front of the queue
-	const isEtf = options?.etfSymbols?.has(symbol) ?? false;
-	scheduleQuoteFetch(symbol, isEtf);
-
-	if (cached && options?.allowStale) {
-		return serializeSnapshot(symbol, cached, false, true);
-	}
-
-	// No cache at all - return null, fetch is scheduled
-	return {
-		symbol,
-		price: null,
-		updatedAt: null,
-		isFresh: false,
-		isUpdating: true
-	};
-};
-
-const serializeSnapshot = (
-	symbol: string,
-	entry: QuoteCacheEntry,
-	isFresh: boolean,
-	isUpdating: boolean
-): QuoteSnapshot => {
-	return {
-		symbol,
-		price: entry.price,
-		updatedAt: entry.updatedAt,
-		isFresh,
-		isUpdating
-	};
-};
+	price: number | null,
+	updatedAt: number | null,
+	status: PriceStatus
+): QuoteSnapshot => ({ symbol, price, updatedAt, status });
 
 const normalizeSymbol = (symbol: string) => symbol?.trim().toUpperCase();

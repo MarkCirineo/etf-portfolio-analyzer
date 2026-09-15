@@ -21,14 +21,8 @@ type AuthedSocket = Socket & {
 	};
 };
 
-let io: SocketIOServer | null = null;
-
-export const getSocketIO = (): SocketIOServer | null => {
-	return io;
-};
-
 export const initSocketServer = (server: HttpServer) => {
-	io = new SocketIOServer(server, {
+	const io = new SocketIOServer(server, {
 		cors: {
 			origin: config.origin || true,
 			credentials: true
@@ -38,8 +32,8 @@ export const initSocketServer = (server: HttpServer) => {
 	io.use(authenticateSocket);
 	io.on("connection", registerSocketHandlers);
 
-	// Initialize list subscriptions (which will subscribe to quote updates)
-	initListSubscriptions();
+	// List subscriptions relay quote updates to sockets in each list's room
+	initListSubscriptions(io);
 
 	logger.info("[socket] Socket.io server initialized");
 };
