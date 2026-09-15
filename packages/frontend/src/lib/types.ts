@@ -76,7 +76,13 @@ export type ListAnalysis = {
 	tail: ExposureBucket & { count: number };
 	cashAndOther: ExposureBucket & { items: { name: string; exposure: number }[] };
 	failedTickers: string[];
-	quotes: { requested: number; priced: number; pending: number; unavailable: number };
+	quotes: {
+		requested: number;
+		priced: number;
+		stale: number;
+		pending: number;
+		unavailable: number;
+	};
 	pendingQuotes: string[];
 	quoteFailures: string[];
 };

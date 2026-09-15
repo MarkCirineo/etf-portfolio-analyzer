@@ -71,7 +71,14 @@ export type ListAnalysis = {
 	cashAndOther: ExposureBucket & { items: { name: string; exposure: number }[] };
 	/** Inputs whose holdings lookup failed; treated as directly held stock for now. */
 	failedTickers: string[];
-	quotes: { requested: number; priced: number; pending: number; unavailable: number };
+	quotes: {
+		requested: number;
+		priced: number;
+		/** Priced, but past the refresh window; a refresh is queued. */
+		stale: number;
+		pending: number;
+		unavailable: number;
+	};
 	pendingQuotes: string[];
 	quoteFailures: string[];
 };
@@ -260,12 +267,16 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	const pendingQuotes: string[] = [];
 	const quoteFailures: string[] = [];
 	let priced = 0;
+	let stale = 0;
 
 	for (const symbol of requestedSymbols) {
 		const status = quoteFor(symbol)?.status;
 
 		if (status === "fresh" || status === "stale") {
 			priced += 1;
+			if (status === "stale") {
+				stale += 1;
+			}
 		} else if (status === "pending") {
 			pendingQuotes.push(symbol);
 		} else if (status === "unavailable") {
@@ -294,6 +305,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		quotes: {
 			requested: requestedSymbols.length,
 			priced,
+			stale,
 			pending: pendingQuotes.length,
 			unavailable: quoteFailures.length
 		},

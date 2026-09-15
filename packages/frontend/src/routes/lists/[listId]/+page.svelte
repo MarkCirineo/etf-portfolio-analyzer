@@ -358,12 +358,17 @@
 						</p>
 					{:else}
 						<p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-							Up to date
+							{analysis.quotes.stale > 0 ? "Refreshing" : "Up to date"}
 						</p>
 						<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-							{analysis.quotes.priced} priced · as of {formatTime(
-								analysis.generatedAt
-							)}
+							{#if analysis.quotes.stale > 0}
+								{analysis.quotes.stale} of {analysis.quotes.priced} prices are being
+								refreshed
+							{:else}
+								{analysis.quotes.priced} priced · as of {formatTime(
+									analysis.generatedAt
+								)}
+							{/if}
 						</p>
 					{/if}
 				</div>
