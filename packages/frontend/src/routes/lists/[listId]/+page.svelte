@@ -219,6 +219,10 @@
 		return largest > 0 ? `${Math.max((percent / largest) * 100, 1)}%` : "0%";
 	};
 
+	const foreignListedCount = () => {
+		return analysis?.holdings.filter((holding) => !holding.usListed).length ?? 0;
+	};
+
 	/** ETFs whose holdings data is materially incomplete, worst first. */
 	const poorlyCoveredInputs = () => {
 		return (
@@ -244,6 +248,8 @@
 				return "unavailable";
 			case "not-requested":
 				return "not priced";
+			case "foreign-listing":
+				return "foreign listing";
 			default:
 				return "";
 		}
@@ -410,8 +416,8 @@
 							({formatCurrency(analysis.unaccounted.exposure)}) is missing from the
 							breakdown below.</strong
 						>
-						The holdings provider only reports positions with a US-listed ticker, so funds
-						holding foreign-listed shares come back incomplete.
+						This is weight the fund did not attribute to a named position, or that the holdings
+						provider did not report.
 					</p>
 					{#if poorlyCoveredInputs().length}
 						<ul class="mt-2 space-y-0.5">
@@ -559,6 +565,12 @@
 						<p class="text-sm text-zinc-500 dark:text-zinc-400">
 							Every security you own, directly or through your ETFs, by dollar
 							exposure.
+							{#if foreignListedCount() > 0}
+								<span class="block">
+									{foreignListedCount().toLocaleString("en-US")} are listed on foreign
+									exchanges, so they show exposure but no share count.
+								</span>
+							{/if}
 						</p>
 					</div>
 					<div class="text-sm text-zinc-500 dark:text-zinc-400">

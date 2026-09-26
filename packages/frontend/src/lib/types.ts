@@ -22,7 +22,14 @@ export type List = {
 	updatedAt: string;
 };
 
-export type PriceStatus = "fresh" | "stale" | "pending" | "unavailable" | "not-requested";
+export type PriceStatus =
+	| "fresh"
+	| "stale"
+	| "pending"
+	| "unavailable"
+	| "not-requested"
+	/** Reported under a foreign exchange ticker, which the quote provider cannot resolve. */
+	| "foreign-listing";
 
 export type InputKind = "etf" | "stock" | "unknown";
 
@@ -53,6 +60,7 @@ export type EtfContribution = {
 export type AnalyzedHolding = {
 	symbol: string;
 	name: string | null;
+	usListed: boolean;
 	exposure: number;
 	percentOfPortfolio: number;
 	directShares: number;

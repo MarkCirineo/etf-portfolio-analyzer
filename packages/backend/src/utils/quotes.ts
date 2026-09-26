@@ -11,7 +11,9 @@ export type PriceStatus =
 	/** The provider could not price it recently; not retried until that cools off. */
 	| "unavailable"
 	/** No price and nobody asked for one (below the fetch cap). */
-	| "not-requested";
+	| "not-requested"
+	/** Reported under a foreign exchange ticker, which the quote provider cannot resolve. */
+	| "foreign-listing";
 
 export type QuoteSnapshot = {
 	symbol: string;

@@ -48,6 +48,8 @@ export type EtfContribution = {
 export type AnalyzedHolding = {
 	symbol: string;
 	name: string | null;
+	/** False for positions a fund reports under a foreign exchange ticker; never priced. */
+	usListed: boolean;
 	exposure: number;
 	percentOfPortfolio: number;
 	directShares: number;
@@ -106,6 +108,8 @@ export type ListAnalysisResult = {
 type ExposureEntry = {
 	symbol: string;
 	name: string | null;
+	/** False when every fund reporting it uses a non-US ticker, so it cannot be priced. */
+	usListed: boolean;
 	directShares: number;
 	directExposure: number;
 	viaExposure: number;
@@ -166,6 +170,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		if (kind !== "etf") {
 			// Directly held (or unresolvable, which is treated the same until it resolves)
 			const aggregate = getOrCreateExposure(exposures, entry.symbol);
+			aggregate.usListed = true;
 			aggregate.directShares += entry.shares;
 			aggregate.directExposure += value ?? 0;
 			return;
@@ -181,6 +186,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		for (const holding of record.holdings) {
 			const exposure = (value * holding.weight) / 100;
 			const aggregate = getOrCreateExposure(exposures, holding.symbol);
+			aggregate.usListed = aggregate.usListed || holding.usListed;
 			aggregate.viaExposure += exposure;
 			aggregate.viaEtfs.push({ etf: entry.symbol, weight: holding.weight, exposure });
 			reportedWeight += holding.weight;
@@ -233,6 +239,12 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			continue;
 		}
 
+		if (!aggregate.usListed) {
+			// The quote provider cannot resolve a foreign exchange ticker; asking would
+			// only burn the rate limit. Exposure and percent still work without a price.
+			continue;
+		}
+
 		const exposure = totalExposure(aggregate);
 
 		if (exposure <= 0) {
@@ -243,8 +255,8 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	}
 
 	const holdingSymbols = ranked
-		.map((aggregate) => aggregate.symbol)
-		.filter((symbol) => !inputPriorities.has(symbol));
+		.filter((aggregate) => aggregate.usListed && !inputPriorities.has(aggregate.symbol))
+		.map((aggregate) => aggregate.symbol);
 	const holdingQuotes = await getQuoteSnapshots(holdingSymbols, holdingPriorities);
 	const quoteFor = (symbol: string): QuoteSnapshot | undefined =>
 		inputQuotes.get(symbol) ?? holdingQuotes.get(symbol);
@@ -264,6 +276,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		return {
 			symbol: aggregate.symbol,
 			name: aggregate.name,
+			usListed: aggregate.usListed,
 			exposure: round(exposure, 2),
 			percentOfPortfolio: totalValue > 0 ? round((exposure / totalValue) * 100, 4) : 0,
 			directShares: round(aggregate.directShares, 4),
@@ -271,7 +284,9 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			totalShares:
 				derivedShares === null ? null : round(aggregate.directShares + derivedShares, 4),
 			price,
-			priceStatus: quote?.status ?? "not-requested",
+			priceStatus: aggregate.usListed
+				? (quote?.status ?? "not-requested")
+				: "foreign-listing",
 			viaEtfs: aggregate.viaEtfs
 				.sort((a, b) => b.exposure - a.exposure)
 				.map((via) => ({
@@ -384,6 +399,7 @@ const getOrCreateExposure = (map: Map<string, ExposureEntry>, symbol: string) =>
 		entry = {
 			symbol,
 			name: null,
+			usListed: false,
 			directShares: 0,
 			directExposure: 0,
 			viaExposure: 0,
