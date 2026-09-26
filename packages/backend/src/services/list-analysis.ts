@@ -28,6 +28,13 @@ export type ListInput = {
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
 	leveraged: boolean;
+	/**
+	 * Percent of this ETF's weight the holdings provider actually accounted for. Well under
+	 * 100 means the provider omitted positions (it only reports US-listed tickers, so
+	 * international funds come back badly incomplete) and this fund's look-through is
+	 * partial. Null for anything that is not an ETF.
+	 */
+	weightCovered: number | null;
 };
 
 export type EtfContribution = {
@@ -67,8 +74,15 @@ export type ListAnalysis = {
 	holdings: AnalyzedHolding[];
 	/** Holdings beyond MAX_RETURNED_HOLDINGS. */
 	tail: ExposureBucket & { count: number };
-	/** Cash, swaps, positions without a US ticker, and weight the provider left unattributed. */
+	/** Cash, treasuries, swaps and other identified positions that are not listed equities. */
 	cashAndOther: ExposureBucket & { items: { name: string; exposure: number }[] };
+	/**
+	 * Portfolio value the holdings data could not account for at all. This is missing
+	 * information, not a position: it is what the provider did not report for each ETF.
+	 */
+	unaccounted: ExposureBucket & {
+		byInput: { symbol: string; exposure: number; weightMissing: number }[];
+	};
 	/** Inputs whose holdings lookup failed; treated as directly held stock for now. */
 	failedTickers: string[];
 	quotes: {
@@ -110,6 +124,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	// 2. Spread each input's market value over what it holds.
 	const exposures = new Map<string, ExposureEntry>();
 	const cashItems = new Map<string, number>();
+	const unaccountedByInput: { symbol: string; exposure: number; weightMissing: number }[] = [];
 	const inputs: ListInput[] = [];
 	const failedTickers: string[] = [];
 	let totalValue = 0;
@@ -132,7 +147,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			totalValue += value;
 		}
 
-		inputs.push({
+		const inputRow: ListInput = {
 			symbol: entry.symbol,
 			shares: entry.shares,
 			kind,
@@ -142,8 +157,11 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			percentOfPortfolio: null,
 			holdingsCount: kind === "etf" ? record.holdings.length : null,
 			holdingsAsOf: kind === "etf" ? record.asOf : null,
-			leveraged: kind === "etf" && record.leveraged
-		});
+			leveraged: kind === "etf" && record.leveraged,
+			weightCovered: null
+		};
+
+		inputs.push(inputRow);
 
 		if (kind !== "etf") {
 			// Directly held (or unresolvable, which is treated the same until it resolves)
@@ -177,11 +195,19 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			reportedWeight += item.weight;
 		}
 
-		// Weights rarely sum to exactly 100: positions too small to report, plus rounding
-		const remainder = 100 - reportedWeight;
+		inputRow.weightCovered = round(reportedWeight, 4);
 
-		if (remainder > 0.005) {
-			addCash(cashItems, "Unreported / rounding", (value * remainder) / 100);
+		// Whatever the provider did not report is unknown, not cash. Small gaps are just
+		// rounding and positions too small to carry a weight; large ones mean the data is
+		// incomplete for this fund.
+		const missingWeight = 100 - reportedWeight;
+
+		if (missingWeight > 0.005) {
+			unaccountedByInput.push({
+				symbol: entry.symbol,
+				exposure: (value * missingWeight) / 100,
+				weightMissing: round(missingWeight, 4)
+			});
 		}
 	});
 
@@ -261,6 +287,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	const tailExposure = tailRows.reduce((sum, row) => sum + row.exposure, 0);
 	const cashEntries = Array.from(cashItems.entries()).sort((a, b) => b[1] - a[1]);
 	const cashExposure = cashEntries.reduce((sum, [, exposure]) => sum + exposure, 0);
+	const unaccountedExposure = unaccountedByInput.reduce((sum, item) => sum + item.exposure, 0);
 
 	// 5. Quote bookkeeping for the UI.
 	const requestedSymbols = [...inputPriorities.keys(), ...holdingPriorities.keys()];
@@ -300,6 +327,14 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			exposure: round(cashExposure, 2),
 			percentOfPortfolio: totalValue > 0 ? round((cashExposure / totalValue) * 100, 4) : 0,
 			items: cashEntries.map(([name, exposure]) => ({ name, exposure: round(exposure, 2) }))
+		},
+		unaccounted: {
+			exposure: round(unaccountedExposure, 2),
+			percentOfPortfolio:
+				totalValue > 0 ? round((unaccountedExposure / totalValue) * 100, 4) : 0,
+			byInput: unaccountedByInput
+				.sort((a, b) => b.exposure - a.exposure)
+				.map((item) => ({ ...item, exposure: round(item.exposure, 2) }))
 		},
 		failedTickers,
 		quotes: {

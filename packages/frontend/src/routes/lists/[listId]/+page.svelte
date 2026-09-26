@@ -219,6 +219,15 @@
 		return largest > 0 ? `${Math.max((percent / largest) * 100, 1)}%` : "0%";
 	};
 
+	/** ETFs whose holdings data is materially incomplete, worst first. */
+	const poorlyCoveredInputs = () => {
+		return (
+			analysis?.inputs
+				.filter((input) => input.weightCovered !== null && input.weightCovered < 95)
+				.sort((a, b) => (a.weightCovered ?? 0) - (b.weightCovered ?? 0)) ?? []
+		);
+	};
+
 	const leveragedInputs = () => {
 		return (
 			analysis?.inputs.filter((input) => input.leveraged).map((input) => input.symbol) ?? []
@@ -329,7 +338,14 @@
 						{(analysis.holdings.length + analysis.tail.count).toLocaleString("en-US")} securities
 					</p>
 					<p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-						{formatPercent(analysis.cashAndOther.percentOfPortfolio, 1)} cash &amp; unlisted
+						{#if analysis.unaccounted.percentOfPortfolio >= 1}
+							<span class="text-amber-700 dark:text-amber-400">
+								{formatPercent(analysis.unaccounted.percentOfPortfolio, 1)} not covered
+								by holdings data
+							</span>
+						{:else}
+							{formatPercent(analysis.cashAndOther.percentOfPortfolio, 1)} cash &amp; other
+						{/if}
 					</p>
 				</div>
 				<div
@@ -381,6 +397,39 @@
 				>
 					Holdings could not be looked up for {analysis.failedTickers.join(", ")}. Until
 					that resolves they are treated as directly held shares.
+				</div>
+			{/if}
+
+			{#if analysis.unaccounted.percentOfPortfolio >= 1}
+				<div
+					class="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-100"
+				>
+					<p>
+						<strong
+							>{formatPercent(analysis.unaccounted.percentOfPortfolio)} of this portfolio
+							({formatCurrency(analysis.unaccounted.exposure)}) is missing from the
+							breakdown below.</strong
+						>
+						The holdings provider only reports positions with a US-listed ticker, so funds
+						holding foreign-listed shares come back incomplete.
+					</p>
+					{#if poorlyCoveredInputs().length}
+						<ul class="mt-2 space-y-0.5">
+							{#each poorlyCoveredInputs() as input (input.symbol)}
+								<li>
+									{input.symbol}: only {formatPercent(input.weightCovered ?? 0)} of
+									the fund accounted for
+									{#if analysis.unaccounted.byInput.find((i) => i.symbol === input.symbol)}
+										· {formatCurrency(
+											analysis.unaccounted.byInput.find(
+												(i) => i.symbol === input.symbol
+											)?.exposure ?? 0
+										)} unaccounted
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</div>
 			{/if}
 
@@ -479,6 +528,13 @@
 												<span class="text-xs text-zinc-400"
 													>as of {input.holdingsAsOf}</span
 												>
+											{/if}
+											{#if input.weightCovered !== null && input.weightCovered < 95}
+												<div
+													class="text-xs text-amber-700 dark:text-amber-400"
+												>
+													{formatPercent(input.weightCovered)} of fund covered
+												</div>
 											{/if}
 										{:else}
 											—
@@ -610,7 +666,7 @@
 								</tr>
 							{/each}
 						</tbody>
-						{#if analysis.tail.count > 0 || analysis.cashAndOther.exposure > 0}
+						{#if analysis.tail.count > 0 || analysis.cashAndOther.exposure > 0 || analysis.unaccounted.exposure > 0}
 							<tfoot
 								class="divide-y divide-zinc-100 text-zinc-500 dark:divide-zinc-800 dark:text-zinc-400"
 							>
@@ -631,7 +687,7 @@
 								{#if analysis.cashAndOther.exposure > 0}
 									<tr>
 										<td class="px-4 py-3" colspan="2">
-											Cash &amp; unlisted
+											Cash &amp; other
 											{#if analysis.cashAndOther.items.length}
 												<div class="text-xs text-zinc-400">
 													{analysis.cashAndOther.items
@@ -651,6 +707,27 @@
 											{formatPercent(
 												analysis.cashAndOther.percentOfPortfolio
 											)}
+										</td>
+										<td class="px-4 py-3" colspan="3"></td>
+									</tr>
+								{/if}
+								{#if analysis.unaccounted.exposure > 0}
+									<tr class="text-amber-700 dark:text-amber-400">
+										<td class="px-4 py-3" colspan="2">
+											Not covered by holdings data
+											{#if analysis.unaccounted.byInput.length}
+												<div class="text-xs opacity-80">
+													{analysis.unaccounted.byInput
+														.map((item) => item.symbol)
+														.join(", ")}
+												</div>
+											{/if}
+										</td>
+										<td class="px-4 py-3 text-right">
+											{formatCurrency(analysis.unaccounted.exposure)}
+										</td>
+										<td class="px-4 py-3">
+											{formatPercent(analysis.unaccounted.percentOfPortfolio)}
 										</td>
 										<td class="px-4 py-3" colspan="3"></td>
 									</tr>

@@ -38,6 +38,8 @@ export type ListInput = {
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
 	leveraged: boolean;
+	/** Percent of the ETF's weight the holdings provider accounted for; null for non-ETFs. */
+	weightCovered: number | null;
 };
 
 export type EtfContribution = {
@@ -75,6 +77,9 @@ export type ListAnalysis = {
 	holdings: AnalyzedHolding[];
 	tail: ExposureBucket & { count: number };
 	cashAndOther: ExposureBucket & { items: { name: string; exposure: number }[] };
+	unaccounted: ExposureBucket & {
+		byInput: { symbol: string; exposure: number; weightMissing: number }[];
+	};
 	failedTickers: string[];
 	quotes: {
 		requested: number;
