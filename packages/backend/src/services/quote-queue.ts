@@ -50,12 +50,6 @@ export const isQuoteQueued = (symbol: string) => {
 	return queued.has(normalized) || inFlight.has(normalized);
 };
 
-export const getQueueStats = () => ({
-	queued: queued.size,
-	inFlight: inFlight.size,
-	pausedForMs: Math.max(pausedUntil - Date.now(), 0)
-});
-
 const ensureWorker = () => {
 	if (workerTimer) {
 		return;
