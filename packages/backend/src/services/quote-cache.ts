@@ -11,6 +11,8 @@ export type QuoteCacheEntry = {
 	staleAt: number;
 	/** Timestamp of the trade the price came from, when the provider reports it. */
 	tradedAt: number | null;
+	/** The prior session's close, for today's change. Absent on entries cached before it existed. */
+	previousClose?: number | null;
 };
 
 export type QuoteFailureEntry = {
@@ -72,6 +74,7 @@ export const getQuoteFailures = async (
 export const saveQuoteToCache = async (
 	symbol: string,
 	price: number,
+	previousClose: number | null = null,
 	tradedAt: number | null = null
 ) => {
 	const normalized = normalizeSymbol(symbol);
@@ -86,7 +89,8 @@ export const saveQuoteToCache = async (
 		price,
 		updatedAt: now,
 		staleAt: now + getQuoteTtlMs(OPEN_MARKET_STALE_MS, new Date(now)),
-		tradedAt
+		tradedAt,
+		previousClose
 	};
 
 	await redisSetJSON(buildCacheKey(normalized), entry, QUOTE_HARD_TTL_MS);

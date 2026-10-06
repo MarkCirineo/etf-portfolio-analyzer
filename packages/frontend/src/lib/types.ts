@@ -43,6 +43,9 @@ export type ListInput = {
 	price: number | null;
 	priceStatus: PriceStatus;
 	value: number | null;
+	previousClose: number | null;
+	/** Dollar change since the previous close for this position. */
+	dayChange: number | null;
 	percentOfPortfolio: number | null;
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
@@ -83,6 +86,8 @@ export type ListAnalysis = {
 	marketOpen: boolean;
 	totalValue: number;
 	totalValueComplete: boolean;
+	/** Change since the previous close; `complete` is false when some input lacks one. */
+	dayChange: { amount: number; percent: number | null; complete: boolean };
 	inputs: ListInput[];
 	holdings: AnalyzedHolding[];
 	tail: ExposureBucket & { count: number };

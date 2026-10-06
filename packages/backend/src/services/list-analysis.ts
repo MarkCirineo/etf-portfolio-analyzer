@@ -24,6 +24,9 @@ export type ListInput = {
 	price: number | null;
 	priceStatus: PriceStatus;
 	value: number | null;
+	previousClose: number | null;
+	/** Dollar change since the previous close for this position. */
+	dayChange: number | null;
 	percentOfPortfolio: number | null;
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
@@ -72,6 +75,11 @@ export type ListAnalysis = {
 	totalValue: number;
 	/** False while any input is still waiting for a price. */
 	totalValueComplete: boolean;
+	/**
+	 * Change since the previous close across the inputs that have one. `complete` is false
+	 * when some input has no previous close yet, so the figure is partial.
+	 */
+	dayChange: { amount: number; percent: number | null; complete: boolean };
 	inputs: ListInput[];
 	holdings: AnalyzedHolding[];
 	/** Holdings beyond MAX_RETURNED_HOLDINGS. */
@@ -133,6 +141,9 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	const failedTickers: string[] = [];
 	let totalValue = 0;
 	let totalValueComplete = true;
+	let dayChangeTotal = 0;
+	let previousValue = 0;
+	let dayChangeComplete = true;
 
 	entries.forEach((entry, index) => {
 		const record = records[index];
@@ -140,6 +151,18 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		const kind = classifyInput(record);
 		const price = quote?.price ?? null;
 		const value = price !== null ? entry.shares * price : null;
+		const previousClose = quote?.previousClose ?? null;
+		const dayChange =
+			price !== null && previousClose !== null
+				? entry.shares * (price - previousClose)
+				: null;
+
+		if (dayChange === null || previousClose === null) {
+			dayChangeComplete = false;
+		} else {
+			dayChangeTotal += dayChange;
+			previousValue += entry.shares * previousClose;
+		}
 
 		if (kind === "unknown") {
 			failedTickers.push(entry.symbol);
@@ -158,6 +181,8 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			price,
 			priceStatus: quote?.status ?? "pending",
 			value,
+			previousClose,
+			dayChange: dayChange === null ? null : round(dayChange, 2),
 			percentOfPortfolio: null,
 			holdingsCount: kind === "etf" ? record.holdings.length : null,
 			holdingsAsOf: kind === "etf" ? record.asOf : null,
@@ -331,6 +356,11 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		marketOpen: getMarketSession().isOpen,
 		totalValue: round(totalValue, 2),
 		totalValueComplete,
+		dayChange: {
+			amount: round(dayChangeTotal, 2),
+			percent: previousValue > 0 ? round((dayChangeTotal / previousValue) * 100, 4) : null,
+			complete: dayChangeComplete
+		},
 		inputs,
 		holdings: returned,
 		tail: {

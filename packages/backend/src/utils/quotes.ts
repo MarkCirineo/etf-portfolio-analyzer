@@ -1,4 +1,9 @@
-import { getCachedQuotes, getQuoteFailures, isQuoteFresh } from "@services/quote-cache";
+import {
+	getCachedQuotes,
+	getQuoteFailures,
+	isQuoteFresh,
+	type QuoteCacheEntry
+} from "@services/quote-cache";
 import { isQuoteQueued, scheduleQuoteFetch } from "@services/quote-queue";
 
 export type PriceStatus =
@@ -18,6 +23,7 @@ export type PriceStatus =
 export type QuoteSnapshot = {
 	symbol: string;
 	price: number | null;
+	previousClose: number | null;
 	updatedAt: number | null;
 	status: PriceStatus;
 };
@@ -53,7 +59,7 @@ export const getQuoteSnapshots = async (
 		const requested = priority !== undefined;
 
 		if (entry && isQuoteFresh(entry)) {
-			result.set(symbol, snapshot(symbol, entry.price, entry.updatedAt, "fresh"));
+			result.set(symbol, snapshot(symbol, entry, "fresh"));
 			continue;
 		}
 
@@ -63,24 +69,24 @@ export const getQuoteSnapshots = async (
 			if (requested && !failed) {
 				scheduleQuoteFetch(symbol, priority);
 			}
-			result.set(symbol, snapshot(symbol, entry.price, entry.updatedAt, "stale"));
+			result.set(symbol, snapshot(symbol, entry, "stale"));
 			continue;
 		}
 
 		if (failed) {
-			result.set(symbol, snapshot(symbol, null, null, "unavailable"));
+			result.set(symbol, snapshot(symbol, null, "unavailable"));
 			continue;
 		}
 
 		if (requested) {
 			scheduleQuoteFetch(symbol, priority);
-			result.set(symbol, snapshot(symbol, null, null, "pending"));
+			result.set(symbol, snapshot(symbol, null, "pending"));
 			continue;
 		}
 
 		result.set(
 			symbol,
-			snapshot(symbol, null, null, isQuoteQueued(symbol) ? "pending" : "not-requested")
+			snapshot(symbol, null, isQuoteQueued(symbol) ? "pending" : "not-requested")
 		);
 	}
 
@@ -89,9 +95,14 @@ export const getQuoteSnapshots = async (
 
 const snapshot = (
 	symbol: string,
-	price: number | null,
-	updatedAt: number | null,
+	entry: QuoteCacheEntry | null,
 	status: PriceStatus
-): QuoteSnapshot => ({ symbol, price, updatedAt, status });
+): QuoteSnapshot => ({
+	symbol,
+	price: entry?.price ?? null,
+	previousClose: entry?.previousClose ?? null,
+	updatedAt: entry?.updatedAt ?? null,
+	status
+});
 
 const normalizeSymbol = (symbol: string) => symbol?.trim().toUpperCase();
