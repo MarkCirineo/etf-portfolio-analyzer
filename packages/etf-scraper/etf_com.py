@@ -1,4 +1,4 @@
-"""Fetches ETF holdings from etf.com.
+"""Fetches ETF holdings and fund profiles from etf.com.
 
 etf.com sits behind Cloudflare, which rejects ordinary HTTP clients (Node, plain curl)
 on their TLS fingerprint with a 403 regardless of headers. curl_cffi impersonates a real
@@ -6,7 +6,7 @@ browser's TLS handshake, which is the whole reason this service exists as a sepa
 process instead of living in the Node backend.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from curl_cffi import requests
 
@@ -19,6 +19,17 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+# Profile section -> the etf.com query that returns it. One request each; the `all`
+# query bundles them but also carries every holding, which is megabytes for VT.
+PROFILE_QUERIES = {
+    "overview": "overviewPage",
+    "sectors": "sectorIndustryBreakdown",
+    "countries": "countries",
+    "regions": "regions",
+    "marketCap": "fundMarketcap",
+    "portfolio": "fundPortfolioData",
+}
+
 
 def fetch_holdings(symbol: str) -> Dict[str, Any]:
     """Return {status, rows, asOf, error} for a ticker.
@@ -28,8 +39,77 @@ def fetch_holdings(symbol: str) -> Dict[str, Any]:
       "not-etf" - the provider knows the ticker and it is not a fund
       "error"   - the request or the response could not be handled
     """
+    sections, error = _query("topHoldings", symbol)
+
+    if error:
+        return _holdings_error(error)
+
+    # The provider answers with topHoldings: null for anything that is not a fund
+    if sections is None:
+        return {"status": "not-etf", "rows": [], "asOf": None}
+
+    rows = _extract_rows(sections)
+
+    if rows is None:
+        return _holdings_error("holdings_section_missing")
+
+    return {
+        "status": "etf",
+        "rows": rows,
+        "asOf": _as_of(rows),
+    }
+
+
+def fetch_profile(symbol: str) -> Dict[str, Any]:
+    """Return {status, sections, errors} describing a fund as a whole.
+
+    sections holds the provider's own rows, unparsed (weights and values arrive as
+    strings like "24.71%", "$1404.32B" or "None%"; the backend interprets them):
+      summary, portfolio, competitors - [{name, label, value}] / provider rows
+      sectors, countries, regions     - [{name, weight}]
+      marketCap                       - [{name, value}]
+      growth                          - [{navDate, tenkValue}], growth of $10k
+
+    A section that fails is left out and its reason recorded in `errors`, so one bad
+    request costs that section rather than the whole profile.
+    """
+    raw: Dict[str, Any] = {}
+    errors: Dict[str, str] = {}
+
+    for key, query in PROFILE_QUERIES.items():
+        section, error = _query(query, symbol)
+        if error:
+            errors[key] = error
+        else:
+            raw[key] = section
+
+    if not raw:
+        return {"status": "error", "sections": {}, "errors": errors, "error": "all_requests_failed"}
+
+    overview = raw.get("overview") or {}
+
+    # Every section is null for anything that is not a fund
+    if "overview" in raw and overview.get("fundSummaryData") is None:
+        return {"status": "not-etf", "sections": {}, "errors": errors}
+
+    sections = {
+        "summary": _fields(overview.get("fundSummaryData")),
+        "portfolio": _fields(raw.get("portfolio")),
+        "sectors": _fields(raw.get("sectors")),
+        "countries": _fields(raw.get("countries")),
+        "regions": _fields(raw.get("regions")),
+        "marketCap": _fields(raw.get("marketCap")),
+        "growth": (overview.get("growthData") or {}).get("data") or [],
+        "competitors": _fields(overview.get("fundCompetingData")),
+    }
+
+    return {"status": "etf", "sections": sections, "errors": errors}
+
+
+def _query(query: str, symbol: str) -> Tuple[Any, Optional[str]]:
+    """POST one query; return (data[query], None) or (None, reason)."""
     payload = {
-        "query": "topHoldings",
+        "query": query,
         "variables": {"ticker": symbol.upper(), "fund_isin": ""},
     }
 
@@ -42,35 +122,27 @@ def fetch_holdings(symbol: str) -> Dict[str, Any]:
             timeout=TIMEOUT_SECONDS,
         )
     except Exception as exc:  # network, TLS, timeout
-        return _error(f"request_failed: {type(exc).__name__}")
+        return None, f"request_failed: {type(exc).__name__}"
 
     if response.status_code != 200:
-        return _error(f"http_{response.status_code}")
+        return None, f"http_{response.status_code}"
 
     try:
         data = response.json()
     except Exception:
-        return _error("invalid_json")
+        return None, "invalid_json"
 
     if not isinstance(data, dict):
-        return _error("unexpected_response")
+        return None, "unexpected_response"
 
-    sections = (data.get("data") or {}).get("topHoldings")
+    return (data.get("data") or {}).get(query), None
 
-    # The provider answers with topHoldings: null for anything that is not a fund
-    if sections is None:
-        return {"status": "not-etf", "rows": [], "asOf": None}
 
-    rows = _extract_rows(sections)
-
-    if rows is None:
-        return _error("holdings_section_missing")
-
-    return {
-        "status": "etf",
-        "rows": rows,
-        "asOf": _as_of(rows),
-    }
+def _fields(section: Any) -> List[Any]:
+    """Most sections wrap their rows as {name, label, fields: [...]}."""
+    if isinstance(section, dict) and isinstance(section.get("fields"), list):
+        return section["fields"]
+    return []
 
 
 def _extract_rows(sections: Any) -> Optional[List[Dict[str, Any]]]:
@@ -107,5 +179,5 @@ def _as_of(rows: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
-def _error(reason: str) -> Dict[str, Any]:
+def _holdings_error(reason: str) -> Dict[str, Any]:
     return {"status": "error", "rows": [], "asOf": None, "error": reason}
