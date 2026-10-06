@@ -54,6 +54,9 @@ export type ListInput = {
 	leveraged: boolean;
 	/** Percent of the ETF's weight the holdings provider accounted for; null for non-ETFs. */
 	weightCovered: number | null;
+	/** Percent per year; null for stocks and when the fund profile is unavailable. */
+	expenseRatio: number | null;
+	distributionYield: number | null;
 };
 
 export type EtfContribution = {
@@ -100,6 +103,7 @@ export type ListAnalysis = {
 		byInput: { symbol: string; exposure: number; weightMissing: number }[];
 	};
 	failedTickers: string[];
+	breakdown: PortfolioBreakdown;
 	quotes: {
 		requested: number;
 		priced: number;
@@ -114,4 +118,41 @@ export type ListAnalysis = {
 export type ListDetail = {
 	list: List;
 	analysis: ListAnalysis;
+};
+
+export type BreakdownRow = { name: string; exposure: number; percent: number };
+
+export type BreakdownSet = {
+	rows: BreakdownRow[];
+	/** Value no fund attributed to a named row, plus positions without fund data. */
+	unclassified: { exposure: number; percent: number };
+};
+
+/** Portfolio-level view, weighted by each fund's dollar value. */
+export type PortfolioBreakdown = {
+	/** FactSet economic sectors, as etf.com reports them. */
+	sectors: BreakdownSet;
+	countries: BreakdownSet;
+	regions: BreakdownSet;
+	marketCap: BreakdownSet;
+	unprofiled: { symbol: string; value: number }[];
+	fees: { annual: number; expenseRatio: number; complete: boolean };
+	income: { annual: number; yield: number | null; coveredPercent: number };
+	valuation: {
+		priceToEarnings: number | null;
+		priceToBook: number | null;
+		weightedAvgMarketCap: number | null;
+		coveredPercent: number;
+	};
+	/** matrix[i][j] = percent of fund i's weight held in securities fund j also holds. */
+	overlap: { funds: string[]; matrix: (number | null)[][] };
+	/** Growth of $10,000 holding today's mix, rebalanced monthly. Not actual returns. */
+	backtest: {
+		start: string;
+		end: string;
+		points: { month: string; value: number }[];
+		annualizedReturn: number | null;
+		limitedBy: string;
+		coveredPercent: number;
+	} | null;
 };

@@ -1,6 +1,7 @@
 import type { ListContent } from "@db/tables/List";
 import { getEtfHoldings, type EtfHoldingsRecord } from "@services/etf-holdings";
 import { getFundProfile, type FundProfile } from "@services/fund-profile";
+import { buildPortfolioBreakdown, type PortfolioBreakdown } from "@services/portfolio-breakdown";
 import { getUsListings, isUsListing } from "@services/us-listings";
 import { getMarketSession } from "@utils/market-hours";
 import { getQuoteSnapshots, type PriceStatus, type QuoteSnapshot } from "@utils/quotes";
@@ -40,6 +41,9 @@ export type ListInput = {
 	 * partial. Null for anything that is not an ETF.
 	 */
 	weightCovered: number | null;
+	/** Percent per year; null for stocks and when the fund profile is unavailable. */
+	expenseRatio: number | null;
+	distributionYield: number | null;
 };
 
 export type EtfContribution = {
@@ -99,6 +103,8 @@ export type ListAnalysis = {
 	};
 	/** Inputs whose holdings lookup failed; treated as directly held stock for now. */
 	failedTickers: string[];
+	/** Sectors, geography, fees, income, valuation, fund overlap and backtest. */
+	breakdown: PortfolioBreakdown;
 	quotes: {
 		requested: number;
 		priced: number;
@@ -202,7 +208,11 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			holdingsCount: kind === "etf" ? record.holdings.length : null,
 			holdingsAsOf: kind === "etf" ? record.asOf : null,
 			leveraged: kind === "etf" && record.leveraged,
-			weightCovered: null
+			weightCovered: null,
+			expenseRatio:
+				kind === "etf" ? (profiles.get(entry.symbol)?.expenseRatio ?? null) : null,
+			distributionYield:
+				kind === "etf" ? (profiles.get(entry.symbol)?.distributionYield ?? null) : null
 		};
 
 		inputs.push(inputRow);
@@ -420,6 +430,12 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 				.map((item) => ({ ...item, exposure: round(item.exposure, 2) }))
 		},
 		failedTickers,
+		breakdown: buildPortfolioBreakdown(
+			inputs.map((input) => ({ symbol: input.symbol, kind: input.kind, value: input.value })),
+			profiles,
+			new Map(entries.map((entry, index) => [entry.symbol, records[index]])),
+			totalValue
+		),
 		quotes: {
 			requested: requestedSymbols.length,
 			priced,
