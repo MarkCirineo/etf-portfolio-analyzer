@@ -23,6 +23,7 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])

@@ -8,6 +8,8 @@ export default interface ListTable {
 	name: string;
 	content: ListContent;
 	ownerId: number;
+	/** The user's main portfolio; every other list is a scenario. */
+	isPrimary: Generated<boolean>;
 	createdAt: Generated<Date>;
 	updatedAt: Generated<Date>;
 }
@@ -18,6 +20,7 @@ export type List = {
 	name: string;
 	content: ListContent;
 	ownerId: number;
+	isPrimary: boolean;
 	createdAt: Date;
 	updatedAt: Date;
 };

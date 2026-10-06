@@ -18,6 +18,8 @@ export type List = {
 	name: string;
 	content: Record<string, number>;
 	ownerId: number;
+	/** The user's main portfolio; every other list is a scenario. */
+	isPrimary: boolean;
 	createdAt: string;
 	updatedAt: string;
 };

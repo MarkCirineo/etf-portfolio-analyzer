@@ -26,19 +26,29 @@ router.post("/", async (req: Request<{}, {}, ListPayload>, res: Response, next: 
 		const listName = trimmedName.length > 0 ? trimmedName : "Untitled List";
 		const publicId = generatePublicId();
 
+		// Becomes the main portfolio if the user doesn't have one yet
+		const currentPrimary = await db
+			.selectFrom("lists")
+			.select("id")
+			.where("ownerId", "=", ownerId)
+			.where("isPrimary", "=", true)
+			.executeTakeFirst();
+
 		const insertedList = await db
 			.insertInto("lists")
 			.values({
 				publicId,
 				name: listName,
 				content: sanitizedHoldings,
-				ownerId
+				ownerId,
+				isPrimary: !currentPrimary
 			})
 			.returning((eb) => [
 				eb.ref("publicId").as("id"),
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])

@@ -40,4 +40,17 @@ export const createTables = async (db: Kysely<Database>): Promise<void> => {
 	} catch (error: any) {
 		logger.warn(`Failed to create lists table: ${error.message}`);
 	}
+
+	// Each user has at most one main portfolio; their other lists are scenarios. The
+	// partial unique index enforces "at most one" in the database rather than in code.
+	try {
+		await sql`alter table lists add column if not exists is_primary boolean not null default false`.execute(
+			db
+		);
+		await sql`create unique index if not exists lists_one_primary_per_owner on lists (owner_id) where is_primary`.execute(
+			db
+		);
+	} catch (error: any) {
+		logger.warn(`Failed to add the main portfolio flag to lists: ${error.message}`);
+	}
 };

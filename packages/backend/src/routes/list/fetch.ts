@@ -17,6 +17,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])
@@ -53,6 +54,7 @@ router.get("/:publicId", async (req: Request, res: Response, next: NextFunction)
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])

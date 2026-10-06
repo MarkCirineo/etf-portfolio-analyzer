@@ -55,6 +55,7 @@ router.patch(
 					"name",
 					"content",
 					"ownerId",
+					"isPrimary",
 					"createdAt",
 					"updatedAt"
 				])
