@@ -15,7 +15,7 @@ export const MAX_QUOTED_HOLDINGS = 300;
 /** Rows returned per analysis; anything beyond is summarised in `tail`. */
 export const MAX_RETURNED_HOLDINGS = 500;
 /** The list's own symbols are priced first: their prices unlock everything else. */
-const INPUT_PRIORITY = 1000;
+export const INPUT_PRIORITY = 1000;
 
 export type InputKind = "etf" | "stock" | "unknown";
 

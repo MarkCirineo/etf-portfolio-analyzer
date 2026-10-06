@@ -2,14 +2,14 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
-import { analyzeList } from "@services/list-analysis";
-import { resolveOwnerId } from "@routes/list/_shared";
+import { analyzeListView, resolveOwnerId } from "@routes/list/_shared";
 
 const router = Router();
 
 /**
- * The user's main portfolio with its analysis. `list` is null when they have not created
- * one yet (or have lists but none marked as main), so the page can prompt for it.
+ * The user's main portfolio with its analysis, optionally narrowed to some of its accounts
+ * with `?accounts=id,id`. `list` is null when they have not created one yet (or have lists
+ * but none marked as main), so the page can prompt for it.
  */
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 	try {
@@ -31,13 +31,13 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 			.executeTakeFirst();
 
 		if (!list) {
-			res.status(200).send({ data: { list: null, analysis: null } });
+			res.status(200).send({
+				data: { list: null, analysis: null, accounts: [], scope: null }
+			});
 			return;
 		}
 
-		const { analysis } = await analyzeList(list.content);
-
-		res.status(200).send({ data: { list, analysis } });
+		res.status(200).send({ data: await analyzeListView(list, req.query.accounts) });
 	} catch (error) {
 		if (error instanceof HttpError) {
 			return next(error);

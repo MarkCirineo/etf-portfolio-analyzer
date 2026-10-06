@@ -6,6 +6,10 @@ export default interface ListTable {
 	id: Generated<number>;
 	publicId: string;
 	name: string;
+	/**
+	 * Every account's holdings added together. The accounts are the source of truth; this
+	 * is rewritten whenever one changes, so the combined view is a single read.
+	 */
 	content: ListContent;
 	ownerId: number;
 	/** The user's main portfolio; every other list is a scenario. */

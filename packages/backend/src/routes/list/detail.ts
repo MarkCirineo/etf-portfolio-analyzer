@@ -2,8 +2,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import db from "@db";
 import { HttpError } from "@utils/error";
 import logger from "@logger";
-import { analyzeList } from "@services/list-analysis";
-import { resolveOwnerId } from "./_shared";
+import { analyzeListView, resolveOwnerId } from "./_shared";
 
 const router = Router();
 
@@ -37,14 +36,7 @@ router.get("/:publicId/analysis", async (req: Request, res: Response, next: Next
 
 		// Computed from cached data; missing prices are queued and streamed to the page
 		// over Socket.IO as they arrive
-		const { analysis } = await analyzeList(list.content);
-
-		res.status(200).send({
-			data: {
-				list,
-				analysis
-			}
-		});
+		res.status(200).send({ data: await analyzeListView(list, req.query.accounts) });
 	} catch (error) {
 		if (error instanceof HttpError) {
 			return next(error);

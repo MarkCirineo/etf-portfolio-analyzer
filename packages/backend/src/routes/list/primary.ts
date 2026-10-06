@@ -2,7 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
-import { resolveOwnerId } from "./_shared";
+import { resolveOwnerId, withAccounts } from "./_shared";
 
 const router = Router();
 
@@ -60,7 +60,9 @@ router.post(
 
 			logger.info(`[list] User ${ownerId} made list ${list.id} their main portfolio`);
 
-			res.status(200).send({ data: list });
+			const [listWithAccounts] = await withAccounts([list]);
+
+			res.status(200).send({ data: listWithAccounts });
 		} catch (error) {
 			if (error instanceof HttpError) {
 				return next(error);
