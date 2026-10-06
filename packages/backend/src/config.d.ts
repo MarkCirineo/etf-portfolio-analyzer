@@ -3,6 +3,8 @@ declare const config: {
 	finnhub_api_key: string;
 	alpha_vantage_api_key: string;
 	etf_scraper_url: string;
+	/** Identifies this app to the SEC, e.g. "my-portfolio-app you@example.com". */
+	sec_user_agent?: string;
 	jwt_secret: string;
 	jwt_expires_in: string;
 	db: {

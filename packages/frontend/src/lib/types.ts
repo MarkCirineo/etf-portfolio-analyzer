@@ -31,7 +31,9 @@ export type PriceStatus =
 	| "unavailable"
 	| "not-requested"
 	/** Reported under a foreign exchange ticker, which the quote provider cannot resolve. */
-	| "foreign-listing";
+	| "foreign-listing"
+	/** A US-style ticker registered to a differently named company; not priced. */
+	| "unconfirmed-listing";
 
 export type InputKind = "etf" | "stock" | "unknown";
 
@@ -63,6 +65,8 @@ export type EtfContribution = {
 
 /** One security the user is exposed to, directly and/or through ETFs. */
 export type AnalyzedHolding = {
+	/** Unique per security. Tickers are not: MRK is both Merck & Co. and Merck KGaA. */
+	id: string;
 	symbol: string;
 	name: string | null;
 	usListed: boolean;

@@ -3,6 +3,8 @@ export default {
 	finnhub_api_key: "",
 	alpha_vantage_api_key: "",
 	etf_scraper_url: "http://localhost:3101",
+	// The SEC asks automated clients to identify themselves: "app-name contact@example.com"
+	sec_user_agent: "",
 	jwt_secret: "",
 	jwt_expires_in: "14d",
 	db: {

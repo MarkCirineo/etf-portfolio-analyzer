@@ -18,7 +18,12 @@ export type PriceStatus =
 	/** No price and nobody asked for one (below the fetch cap). */
 	| "not-requested"
 	/** Reported under a foreign exchange ticker, which the quote provider cannot resolve. */
-	| "foreign-listing";
+	| "foreign-listing"
+	/**
+	 * A US-style ticker the SEC registers to a differently named company: either a foreign
+	 * company sharing the ticker (Merck KGaA's MRK) or a rename. Not priced either way.
+	 */
+	| "unconfirmed-listing";
 
 export type QuoteSnapshot = {
 	symbol: string;

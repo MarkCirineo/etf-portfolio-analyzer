@@ -250,6 +250,8 @@
 				return "not priced";
 			case "foreign-listing":
 				return "foreign listing";
+			case "unconfirmed-listing":
+				return "listing unconfirmed";
 			default:
 				return "";
 		}
@@ -567,8 +569,8 @@
 							exposure.
 							{#if foreignListedCount() > 0}
 								<span class="block">
-									{foreignListedCount().toLocaleString("en-US")} are listed on foreign
-									exchanges, so they show exposure but no share count.
+									{foreignListedCount().toLocaleString("en-US")} can't be matched to
+									a US listing, so they show exposure but no share count.
 								</span>
 							{/if}
 						</p>
@@ -594,7 +596,7 @@
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-							{#each getDisplayedHoldings() as holding (holding.symbol)}
+							{#each getDisplayedHoldings() as holding (holding.id)}
 								<tr class="hover:bg-zinc-50/70 dark:hover:bg-zinc-800/40">
 									<td
 										class="px-4 py-3 font-semibold text-zinc-900 dark:text-zinc-100"
