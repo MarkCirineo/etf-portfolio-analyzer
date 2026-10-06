@@ -1,83 +1,60 @@
-# ETF Scraper Service
+# ETF Holdings Service
 
-Python microservice that scrapes ETF holdings data from etf.com.
+Fetches ETF holdings from etf.com for the Node backend.
 
-## Requirements
+## Why this is a separate process
 
--   **Python 3.7+** (works with any modern Python version, including 3.14+)
+etf.com's API is behind Cloudflare, which blocks clients by TLS fingerprint. Node (and
+plain `curl` on Linux) get a `403 Sorry, you have been blocked` no matter what headers they
+send. [`curl_cffi`](https://github.com/lexiforest/curl_cffi) impersonates a real browser's
+TLS handshake, so this small Python service does the fetching and the backend calls it over
+localhost.
+
+The payoff is complete data: for VXUS, etf.com returns 8,745 rows covering 94% of the fund,
+where Alpha Vantage (the backend's fallback) returns 37 rows covering 5%, because it only
+reports positions with a US-listed ticker.
 
 ## Setup
 
-1. Create a virtual environment:
-
 ```bash
 python -m venv venv
-```
-
-2. Activate the virtual environment:
-
--   Windows: `venv\Scripts\activate`
--   macOS/Linux: `source venv/bin/activate`
-
-3. Install dependencies:
-
-```bash
+venv/Scripts/activate      # Windows
+source venv/bin/activate   # macOS/Linux
 pip install -r requirements.txt
 ```
 
-4. Configure environment variables (optional):
-   Create a `.env` file in this directory:
+Optional `.env` in this directory:
 
 ```env
-PORT=8000
-HOST=0.0.0.0
-ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
+PORT=3101
+HOST=127.0.0.1
 ```
 
--   `PORT`: Server port (default: 8000)
--   `HOST`: Server host (default: 0.0.0.0)
--   `ALLOWED_ORIGINS`: Comma-separated list of allowed CORS origins, or "\*" for all (default: localhost origins)
-
 ## Running
-
-Start the service:
 
 ```bash
 python app.py
 ```
 
-Or using uvicorn directly:
+`yarn dev` from the repo root starts this alongside the backend and frontend. The backend
+finds it at `etf_scraper_url` in its config and falls back to Alpha Vantage when it is not
+reachable.
 
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-```
+## API
 
-The service will run on `http://localhost:8000`
-
-## API Endpoints
-
-### GET `/etf-holdings/{symbol}`
-
-Fetches ETF holdings for a given ticker symbol.
-
-**Example:**
-
-```bash
-curl http://localhost:8000/etf-holdings/SPY
-```
-
-**Response:**
+### `GET /etf-holdings/{symbol}`
 
 ```json
 {
-    "holdings": [
-        { "symbol": "AAPL", "weight": 7.2, "name": "Apple Inc." },
-        { "symbol": "MSFT", "weight": 6.8, "name": "Microsoft Corporation" }
-    ],
-    "failed": false
+    "status": "etf",
+    "asOf": "2026-08-31",
+    "rows": [{ "symbol": "2330", "name": "Taiwan Semiconductor...", "weight": "3.94%" }]
 }
 ```
 
-## Integration
+`status` is `etf`, `not-etf` (the ticker is not a fund), or `error` (with an `error` field).
+Always returns HTTP 200 so the backend can tell a provider problem from a transport one.
+Symbols are as the fund reports them, which for foreign listings means a local exchange
+ticker (`2330`, `005930`) rather than a US symbol.
 
-This service is called by the Node.js backend to replace AlphaVantage API calls for ETF holdings data.
+### `GET /health`

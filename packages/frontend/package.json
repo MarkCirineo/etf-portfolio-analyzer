@@ -35,7 +35,8 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "^0.503.0",
-		"mode-watcher": "^1.0.7"
+		"mode-watcher": "^1.0.7",
+		"socket.io-client": "^4.8.1"
 	},
 	"resolutions": {
 		"svelte-check/**/picomatch": "^4.0.0"

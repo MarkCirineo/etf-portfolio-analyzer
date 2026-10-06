@@ -12,6 +12,15 @@ declare const config: {
 		password: string;
 		database: string;
 	};
+	redis?: {
+		url?: string;
+		host?: string;
+		port?: number;
+		password?: string;
+		db?: number;
+		keyPrefix?: string;
+		tls?: boolean;
+	};
 	origin: string;
 };
 
