@@ -1,10 +1,3 @@
-export type SearchItem = {
-	description: string;
-	displaySymbol: string;
-	symbol: string;
-	type: string;
-};
-
 export type AuthUser = {
 	id: number;
 	email: string;
@@ -106,6 +99,8 @@ export type AnalyzedHolding = {
 	id: string;
 	symbol: string;
 	name: string | null;
+	/** GICS sector, when the company could be classified. */
+	sector: string | null;
 	usListed: boolean;
 	exposure: number;
 	percentOfPortfolio: number;
@@ -168,8 +163,12 @@ export type BreakdownSet = {
 
 /** Portfolio-level view, weighted by each fund's dollar value. */
 export type PortfolioBreakdown = {
-	/** FactSet economic sectors, as etf.com reports them. */
+	/**
+	 * GICS sectors, company by company, as shares of the whole portfolio; companies the
+	 * sector lists don't cover are unclassified. FactSet's sectors while GICS is unavailable.
+	 */
 	sectors: BreakdownSet;
+	sectorScheme: "gics" | "factset";
 	countries: BreakdownSet;
 	regions: BreakdownSet;
 	marketCap: BreakdownSet;

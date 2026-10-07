@@ -7,6 +7,7 @@
 	import { page } from "$app/state";
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { compareHoldings, compareInputs, compareSets } from "$lib/compare";
+	import { asClassifiedSet } from "$lib/sectors";
 	import { formatCurrency, formatMoney, formatPercent } from "$lib/format";
 	import { request } from "$lib/request";
 	import type { List, ListAnalysis, ListDetail } from "$lib/types";
@@ -84,10 +85,14 @@
 
 	const largest = (analysis: ListAnalysis) => analysis.holdings[0] ?? null;
 
+	/** GICS sectors as shares of what each side could classify, so coverage gaps cancel out. */
+	const sectorSet = (analysis: ListAnalysis) =>
+		analysis.breakdown.sectorScheme === "gics"
+			? asClassifiedSet(analysis.breakdown.sectors)
+			: analysis.breakdown.sectors;
+
 	const sectors = $derived(
-		scenario && base
-			? compareSets(base.analysis.breakdown.sectors, scenario.analysis.breakdown.sectors)
-			: []
+		scenario && base ? compareSets(sectorSet(base.analysis), sectorSet(scenario.analysis)) : []
 	);
 	const regions = $derived(
 		scenario && base

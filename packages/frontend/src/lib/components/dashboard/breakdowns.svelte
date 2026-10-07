@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatCompactMoney, formatPercent } from "$lib/format";
+	import { classifiedShares } from "$lib/sectors";
 	import type { BreakdownSet, PortfolioBreakdown } from "$lib/types";
 
 	let { breakdown }: { breakdown: PortfolioBreakdown } = $props();
@@ -21,7 +22,17 @@
 				]
 			: set.rows;
 
-	const sectors = $derived(breakdown.sectors.rows.slice(0, 12));
+	const gics = $derived(breakdown.sectorScheme === "gics");
+	// GICS rows are shares of what could be classified, adding to 100% like a factsheet
+	const sectorShares = $derived(
+		gics
+			? classifiedShares(breakdown.sectors)
+			: {
+					rows: breakdown.sectors.rows,
+					coveredPercent: 100 - breakdown.sectors.unclassified.percent
+				}
+	);
+	const sectors = $derived(sectorShares.rows.slice(0, 12));
 	const largestSector = $derived(sectors[0]?.percent ?? 0);
 
 	const regions = $derived(
@@ -78,7 +89,9 @@
 	<section aria-labelledby="sectors-title" class="min-w-0 rounded-2xl border bg-card p-5">
 		<h2 id="sectors-title" class="text-base font-semibold">Sectors</h2>
 		<p class="mb-4 mt-1 text-[13px] text-muted-foreground">
-			Share of your whole portfolio, through every fund
+			{gics
+				? "The 11 GICS sectors, company by company through every fund"
+				: "Share of your whole portfolio, through every fund"}
 		</p>
 		{#if sectors.length === 0}
 			{@render empty()}
@@ -103,7 +116,14 @@
 					</li>
 				{/each}
 			</ul>
-			{#if breakdown.sectors.unclassified.percent >= 0.5}
+			{#if gics && sectorShares.coveredPercent < 99.5}
+				<p class="mt-3 text-xs text-muted-foreground">
+					Shares of the <span class="font-mono tabular-nums"
+						>{formatPercent(sectorShares.coveredPercent, 0)}</span
+					> of your portfolio that could be classified. The rest is mostly smaller and emerging-market
+					companies, plus cash and data a fund doesn't report.
+				</p>
+			{:else if !gics && breakdown.sectors.unclassified.percent >= 0.5}
 				<p class="mt-3 text-xs text-muted-foreground">
 					<span class="font-mono tabular-nums"
 						>{formatPercent(breakdown.sectors.unclassified.percent, 1)}</span

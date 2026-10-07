@@ -144,6 +144,13 @@
 								Your #{rank} holding
 							</li>
 						{/if}
+						{#if holding.sector}
+							<li
+								class="rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground"
+							>
+								{holding.sector}
+							</li>
+						{/if}
 						{#if !holding.usListed}
 							<li
 								class="rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-300"

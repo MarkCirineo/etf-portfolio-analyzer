@@ -2,26 +2,26 @@
 	import { onDestroy } from "svelte";
 	import { toast } from "svelte-sonner";
 	import Plus from "@lucide/svelte/icons/plus";
-	import X from "@lucide/svelte/icons/x";
 	import { page } from "$app/state";
 	import { AuthDialog } from "$lib/components/auth";
 	import Button from "$lib/components/ui/button/button.svelte";
+	import { HoldingsEditor } from "$lib/components/holdings-editor";
+	import { rowsValue, toHoldings, toRows, type HoldingRow } from "$lib/holdings";
 	import { ACCOUNT_TYPE_BADGE, ACCOUNT_TYPE_LABELS, ACCOUNT_TYPES } from "$lib/accounts";
-	import { formatCurrency, formatMoney, formatPercent, plural } from "$lib/format";
+	import { formatMoney, formatPercent, plural } from "$lib/format";
 	import { request } from "$lib/request";
 	import { auth } from "$lib/stores/auth.svelte";
 	import { PortfolioView } from "$lib/stores/portfolio-view.svelte";
 	import type { Account, AccountType } from "$lib/types";
 	import { cn } from "$lib/utils";
 
-	type Row = { symbol: string; shares: string };
 	type Draft = {
 		/** Null while adding a new account. */
 		id: string | null;
 		name: string;
 		institution: string;
 		type: AccountType;
-		rows: Row[];
+		rows: HoldingRow[];
 	};
 
 	const NEW = "new";
@@ -35,9 +35,6 @@
 	let draft = $state<Draft | null>(null);
 	let saved = $state("");
 	let saving = $state(false);
-	let newSymbol = $state("");
-	let newShares = $state("");
-	let symbolInput = $state<HTMLInputElement | null>(null);
 	let started = false;
 
 	$effect(() => {
@@ -77,12 +74,7 @@
 					name: account.name,
 					institution: account.institution ?? "",
 					type: account.type,
-					rows: Object.entries(account.holdings)
-						.sort(
-							(a, b) =>
-								(prices.get(b[0]) ?? 0) * b[1] - (prices.get(a[0]) ?? 0) * a[1]
-						)
-						.map(([symbol, shares]) => ({ symbol, shares: String(shares) }))
+					rows: toRows(account.holdings, prices)
 				}
 			: {
 					id: null,
@@ -105,8 +97,6 @@
 			id && id !== NEW ? (accounts.find((account) => account.id === id) ?? null) : null
 		);
 		saved = snapshot(draft);
-		newSymbol = "";
-		newShares = "";
 	};
 
 	// Pick an account once they load, or after the selected one disappears
@@ -130,61 +120,12 @@
 		}
 	});
 
-	const parseShares = (value: string) => {
-		const shares = Number(value.replace(/,/g, "").trim());
-		return Number.isFinite(shares) && shares >= 0 ? shares : null;
-	};
-
-	const addRow = (event: SubmitEvent) => {
-		event.preventDefault();
-		if (!draft) return;
-
-		const symbol = newSymbol.trim().toUpperCase();
-		const shares = parseShares(newShares || "0");
-
-		if (!symbol) {
-			toast.error("Enter a ticker symbol");
-			return;
-		}
-
-		if (shares === null) {
-			toast.error("Shares must be a number of zero or more");
-			return;
-		}
-
-		const existing = draft.rows.find((row) => row.symbol === symbol);
-
-		if (existing) {
-			existing.shares = String((parseShares(existing.shares) ?? 0) + shares);
-		} else {
-			draft.rows.push({ symbol, shares: String(shares) });
-		}
-
-		newSymbol = "";
-		newShares = "";
-		// Ready for the next one
-		symbolInput?.focus();
-	};
-
-	const removeRow = (symbol: string) => {
-		if (!draft) return;
-		draft.rows = draft.rows.filter((row) => row.symbol !== symbol);
-	};
-
 	const otherAccountsWith = (symbol: string) =>
-		accounts.filter(
-			(account) => account.id !== draft?.id && account.holdings[symbol] !== undefined
-		);
+		accounts
+			.filter((account) => account.id !== draft?.id && account.holdings[symbol] !== undefined)
+			.map((account) => account.name);
 
-	const rowValue = (row: Row) => {
-		const shares = parseShares(row.shares);
-		const price = prices.get(row.symbol);
-		return shares !== null && price !== undefined ? shares * price : null;
-	};
-
-	const draftValue = $derived(
-		draft?.rows.reduce((sum, row) => sum + (rowValue(row) ?? 0), 0) ?? 0
-	);
+	const draftValue = $derived(draft ? rowsValue(draft.rows, prices) : 0);
 
 	const discard = () => {
 		saved = snapshot(draft);
@@ -194,18 +135,14 @@
 	const save = async () => {
 		if (!draft) return;
 
-		const holdings: Record<string, number> = {};
+		const parsed = toHoldings(draft.rows);
 
-		for (const row of draft.rows) {
-			const shares = parseShares(row.shares);
-
-			if (shares === null) {
-				toast.error(`Shares for ${row.symbol} must be a number of zero or more`);
-				return;
-			}
-
-			holdings[row.symbol] = shares;
+		if ("invalid" in parsed) {
+			toast.error(`Shares for ${parsed.invalid} must be a number of zero or more`);
+			return;
 		}
+
+		const { holdings } = parsed;
 
 		const account = {
 			name: draft.name.trim(),
@@ -467,133 +404,13 @@
 						</div>
 					</div>
 
-					<div>
-						<h3 class="mb-2 text-[15px] font-semibold">Holdings in this account</h3>
-						{#if draft.rows.length === 0}
-							<p
-								class="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground"
-							>
-								No holdings yet. Add the funds and stocks this account holds below.
-							</p>
-						{:else}
-							<div class="overflow-x-auto">
-								<table class="w-full min-w-[520px] border-collapse text-sm">
-									<thead>
-										<tr
-											class="text-left text-xs uppercase tracking-wider text-muted-foreground"
-										>
-											<th scope="col" class="border-b py-2 pr-3 font-medium"
-												>Symbol</th
-											>
-											<th
-												scope="col"
-												class="w-40 border-b px-3 py-2 font-medium"
-												>Shares</th
-											>
-											<th
-												scope="col"
-												class="border-b px-3 py-2 text-right font-medium"
-												>Price</th
-											>
-											<th
-												scope="col"
-												class="border-b px-3 py-2 text-right font-medium"
-												>Value</th
-											>
-											<th scope="col" class="w-11 border-b py-2"
-												><span class="sr-only">Remove</span></th
-											>
-										</tr>
-									</thead>
-									<tbody>
-										{#each draft.rows as row (row.symbol)}
-											{@const others = otherAccountsWith(row.symbol)}
-											<tr>
-												<td class="border-b py-2 pr-3">
-													<div class="font-semibold">{row.symbol}</div>
-													{#if others.length}
-														<div class="text-xs text-muted-foreground">
-															Also in {others
-																.map((account) => account.name)
-																.join(", ")}
-														</div>
-													{/if}
-												</td>
-												<td class="border-b px-3 py-2">
-													<input
-														type="text"
-														inputmode="decimal"
-														aria-label="{row.symbol} shares"
-														bind:value={row.shares}
-														class="min-h-10 w-full rounded-lg border bg-background px-2.5 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-													/>
-												</td>
-												<td
-													class="border-b px-3 py-2 text-right font-mono tabular-nums text-muted-foreground"
-												>
-													{prices.has(row.symbol)
-														? formatCurrency(prices.get(row.symbol))
-														: "—"}
-												</td>
-												<td
-													class="border-b px-3 py-2 text-right font-mono font-semibold tabular-nums"
-												>
-													{formatMoney(rowValue(row))}
-												</td>
-												<td class="border-b py-2">
-													<button
-														type="button"
-														aria-label="Remove {row.symbol}"
-														onclick={() => removeRow(row.symbol)}
-														class="inline-flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
-													>
-														<X class="size-4" />
-													</button>
-												</td>
-											</tr>
-										{/each}
-									</tbody>
-								</table>
-							</div>
-							<p class="mt-2 text-xs text-muted-foreground">
-								New symbols are priced after you save.
-							</p>
-						{/if}
-					</div>
-
-					<form
-						onsubmit={addRow}
-						class="flex flex-wrap items-end gap-3 rounded-xl bg-muted/70 p-4"
-					>
-						<div class="flex min-w-48 flex-[2] flex-col gap-1.5">
-							<label for="new-symbol" class="text-[13px] font-medium"
-								>Add a holding</label
-							>
-							<input
-								id="new-symbol"
-								bind:this={symbolInput}
-								type="text"
-								autocomplete="off"
-								placeholder="Symbol, like SCHD or MSFT"
-								bind:value={newSymbol}
-								class="min-h-11 rounded-lg border bg-card px-3 uppercase placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-ring"
-							/>
-						</div>
-						<div class="flex min-w-28 flex-1 flex-col gap-1.5">
-							<label for="new-shares" class="text-[13px] font-medium">Shares</label>
-							<input
-								id="new-shares"
-								type="text"
-								inputmode="decimal"
-								placeholder="0"
-								bind:value={newShares}
-								class="min-h-11 rounded-lg border bg-card px-3 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-							/>
-						</div>
-						<Button type="submit" variant="outline" class="min-h-11 bg-card px-5"
-							>Add</Button
-						>
-					</form>
+					<HoldingsEditor
+						bind:rows={draft.rows}
+						{prices}
+						title="Holdings in this account"
+						empty="No holdings yet. Add the funds and stocks this account holds below."
+						alsoIn={otherAccountsWith}
+					/>
 
 					<div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
 						{#if draft.id && accounts.length > 1}
