@@ -63,6 +63,12 @@
 				throw new Error(body?.message ?? "Failed to load list");
 			}
 
+			// Several accounts are edited one at a time on the accounts page
+			if ((body.data as List).accounts.length > 1) {
+				await goto("/accounts", { replaceState: true });
+				return;
+			}
+
 			hydrateFromList(body.data as List);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : "Failed to load list";

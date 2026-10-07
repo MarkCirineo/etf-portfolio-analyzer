@@ -13,10 +13,44 @@ export type AuthUser = {
 	avatar: string | null;
 };
 
+export type AccountType = "taxable" | "roth_ira" | "traditional_ira" | "401k" | "hsa" | "other";
+
+/** One brokerage account in a list; the list is its accounts combined. */
+export type Account = {
+	id: string;
+	name: string;
+	institution: string | null;
+	type: AccountType;
+	holdings: Record<string, number>;
+};
+
+/** An account valued from the same prices as the analysis. */
+export type AccountSummary = {
+	id: string;
+	name: string;
+	institution: string | null;
+	type: AccountType;
+	value: number;
+	/** False while any position is still waiting for a price. */
+	valueComplete: boolean;
+	/** Share of every account combined, whatever the current scope. */
+	percentOfPortfolio: number | null;
+	dayChange: number | null;
+	positions: {
+		symbol: string;
+		shares: number;
+		price: number | null;
+		value: number | null;
+		percentOfAccount: number | null;
+	}[];
+};
+
 export type List = {
 	id: string;
 	name: string;
+	/** Every account's holdings added together. */
 	content: Record<string, number>;
+	accounts: Account[];
 	ownerId: number;
 	/** The user's main portfolio; every other list is a scenario. */
 	isPrimary: boolean;
@@ -117,7 +151,11 @@ export type ListAnalysis = {
 
 export type ListDetail = {
 	list: List;
+	/** Covers the accounts in `scope`, or all of them when it is null. */
 	analysis: ListAnalysis;
+	/** Every account, valued, whatever the scope. */
+	accounts: AccountSummary[];
+	scope: string[] | null;
 };
 
 export type BreakdownRow = { name: string; exposure: number; percent: number };
