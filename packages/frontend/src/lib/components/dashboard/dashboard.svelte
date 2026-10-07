@@ -113,6 +113,7 @@
 				accounts={allAccounts}
 				scope={detail.scope}
 				{colors}
+				accountsHref={view.accountsHref}
 				onselect={view.setScope}
 			/>
 		{/if}

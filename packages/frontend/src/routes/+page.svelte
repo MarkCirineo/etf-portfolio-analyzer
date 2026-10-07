@@ -8,7 +8,7 @@
 	import { auth } from "$lib/stores/auth.svelte";
 	import { activeView, PortfolioView } from "$lib/stores/portfolio-view.svelte";
 
-	const view = new PortfolioView("/portfolio");
+	const view = new PortfolioView("/portfolio", { syncUrl: true });
 	activeView.current = view;
 
 	let started = false;

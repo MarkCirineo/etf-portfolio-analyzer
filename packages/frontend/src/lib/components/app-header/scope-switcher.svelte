@@ -123,7 +123,7 @@
 			</div>
 		{/each}
 		<a
-			href="/accounts"
+			href={view.accountsHref}
 			onclick={() => (open = false)}
 			class="mt-1 flex min-h-11 items-center gap-2.5 rounded-md px-2.5 text-sm font-medium text-indigo-700 hover:bg-accent dark:text-indigo-300"
 		>

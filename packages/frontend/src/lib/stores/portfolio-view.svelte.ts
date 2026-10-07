@@ -1,4 +1,5 @@
 import { io, type Socket } from "socket.io-client";
+import { replaceState } from "$app/navigation";
 import { API_BASE_URL, request } from "$lib/request";
 import type { AccountSummary, ListAnalysis, ListDetail } from "$lib/types";
 
@@ -44,13 +45,29 @@ export class PortfolioView {
 	empty = $state(false);
 
 	#endpoint: string;
+	#syncUrl: boolean;
 	#socket: Socket | null = null;
 	#subscribed: { listId: string; scope: string[] | null } | null = null;
 	#request = 0;
 
-	/** `endpoint` is "/portfolio" or "/list/:id/analysis". */
-	constructor(endpoint: string) {
+	/**
+	 * `endpoint` is "/portfolio" or "/list/:id/analysis". With `syncUrl`, the scope is read
+	 * from and kept in the page's `?accounts=` query, so a reload or a shared link keeps it.
+	 */
+	constructor(endpoint: string, { syncUrl = false }: { syncUrl?: boolean } = {}) {
 		this.#endpoint = endpoint;
+		this.#syncUrl = syncUrl;
+
+		if (syncUrl && typeof window !== "undefined") {
+			const ids = new URL(window.location.href).searchParams.get("accounts");
+			this.scope = ids ? ids.split(",").filter(Boolean) : null;
+		}
+	}
+
+	/** Where to add or edit this list's accounts. */
+	get accountsHref() {
+		const list = this.detail?.list;
+		return list && !list.isPrimary ? `/accounts?list=${list.id}` : "/accounts";
 	}
 
 	load = async () => {
@@ -62,6 +79,12 @@ export class PortfolioView {
 			const query = this.scope ? `?accounts=${encodeURIComponent(this.scope.join(","))}` : "";
 			const response = await request(`${this.#endpoint}${query}`);
 			const body = await response.json().catch(() => ({}));
+
+			// A stale ?accounts= link (an account since deleted): fall back to every account
+			if (response.status === 400 && this.scope) {
+				this.setScope(null);
+				return;
+			}
 
 			if (!response.ok) {
 				throw new Error(body?.message ?? "Failed to load portfolio");
@@ -102,6 +125,17 @@ export class PortfolioView {
 		}
 
 		this.scope = next;
+
+		if (this.#syncUrl) {
+			const url = new URL(window.location.href);
+			if (next) {
+				url.searchParams.set("accounts", next.join(","));
+			} else {
+				url.searchParams.delete("accounts");
+			}
+			replaceState(url, {});
+		}
+
 		void this.load();
 	};
 

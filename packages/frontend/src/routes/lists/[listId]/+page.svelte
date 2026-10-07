@@ -2,6 +2,7 @@
 	import { onDestroy } from "svelte";
 	import { toast } from "svelte-sonner";
 	import ArrowLeft from "@lucide/svelte/icons/arrow-left";
+	import GitCompare from "@lucide/svelte/icons/git-compare";
 	import Star from "@lucide/svelte/icons/star";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
@@ -11,7 +12,7 @@
 	import { activeView, PortfolioView } from "$lib/stores/portfolio-view.svelte";
 
 	const listId = page.params.listId;
-	const view = new PortfolioView(`/list/${listId}/analysis`);
+	const view = new PortfolioView(`/list/${listId}/analysis`, { syncUrl: true });
 	activeView.current = view;
 	void view.load();
 
@@ -79,10 +80,20 @@
 	<Dashboard
 		{view}
 		eyebrow={list.isPrimary ? "Main portfolio" : `Scenario · ${list.name}`}
-		editHref={list.isPrimary ? "/accounts" : `/lists/${list.id}/edit`}
+		editHref={list.accounts.length > 1 || list.isPrimary
+			? view.accountsHref
+			: `/lists/${list.id}/edit`}
 	>
 		{#snippet actions()}
 			{#if !list.isPrimary}
+				<Button
+					variant="outline"
+					href="/lists/{list.id}/compare"
+					class="min-h-11 gap-2 px-4"
+				>
+					<GitCompare class="size-4" />
+					Compare
+				</Button>
 				<Button
 					variant="outline"
 					onclick={makeMain}

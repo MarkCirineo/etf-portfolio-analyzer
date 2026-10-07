@@ -65,7 +65,10 @@
 
 			// Several accounts are edited one at a time on the accounts page
 			if ((body.data as List).accounts.length > 1) {
-				await goto("/accounts", { replaceState: true });
+				const list = body.data as List;
+				await goto(list.isPrimary ? "/accounts" : `/accounts?list=${list.id}`, {
+					replaceState: true
+				});
 				return;
 			}
 

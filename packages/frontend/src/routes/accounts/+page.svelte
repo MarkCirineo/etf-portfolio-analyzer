@@ -26,7 +26,10 @@
 
 	const NEW = "new";
 
-	const view = new PortfolioView("/portfolio");
+	// ?list= edits a scenario's accounts; otherwise the main portfolio's
+	const listParam = page.url.searchParams.get("list");
+	const view = new PortfolioView(listParam ? `/list/${listParam}/analysis` : "/portfolio");
+	const dashboardHref = listParam ? `/lists/${listParam}` : "/";
 
 	let selected = $state<string | null>(page.url.searchParams.has("new") ? NEW : null);
 	let draft = $state<Draft | null>(null);
@@ -296,7 +299,7 @@
 <div class="mx-auto flex max-w-7xl flex-col gap-6 px-4 pb-16 pt-8 sm:px-6">
 	<div>
 		<p class="text-[13px] font-medium uppercase tracking-wider text-muted-foreground">
-			Your portfolio
+			{list && !list.isPrimary ? `Scenario · ${list.name}` : "Your portfolio"}
 		</p>
 		<h1 class="mt-1 text-3xl font-semibold tracking-tight">Accounts</h1>
 		<p class="mt-1.5 max-w-2xl text-muted-foreground">
@@ -412,7 +415,7 @@
 						</div>
 						{#if list}
 							<a
-								href="/"
+								href={dashboardHref}
 								class="py-3 text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300"
 								>View on dashboard</a
 							>

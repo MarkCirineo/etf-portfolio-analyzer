@@ -14,11 +14,14 @@
 		accounts,
 		scope,
 		colors,
+		accountsHref,
 		onselect
 	}: {
 		accounts: AccountSummary[];
 		scope: string[] | null;
 		colors: Map<string, string>;
+		/** The page for adding or editing this list's accounts. */
+		accountsHref: string;
 		onselect: (scope: string[] | null) => void;
 	} = $props();
 
@@ -148,7 +151,7 @@
 			</button>
 		{/each}
 		<a
-			href="/accounts?new=1"
+			href="{accountsHref}{accountsHref.includes('?') ? '&' : '?'}new=1"
 			class="flex min-h-36 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
 		>
 			<Plus class="size-5" />
