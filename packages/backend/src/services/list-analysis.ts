@@ -1,7 +1,13 @@
 import type { ListContent } from "@db/tables/List";
 import { getEtfHoldings, type EtfHoldingsRecord } from "@services/etf-holdings";
 import { getFundProfile, type FundProfile } from "@services/fund-profile";
-import { buildPortfolioBreakdown, type PortfolioBreakdown } from "@services/portfolio-breakdown";
+import { getGicsClassifier, type GicsClassifier } from "@services/gics";
+import {
+	buildPortfolioBreakdown,
+	combineBreakdowns,
+	type BreakdownSet,
+	type PortfolioBreakdown
+} from "@services/portfolio-breakdown";
 import { getUsListings, isUsListing } from "@services/us-listings";
 import { getMarketSession } from "@utils/market-hours";
 import { getQuoteSnapshots, type PriceStatus, type QuoteSnapshot } from "@utils/quotes";
@@ -59,6 +65,8 @@ export type AnalyzedHolding = {
 	id: string;
 	symbol: string;
 	name: string | null;
+	/** GICS sector, when the company is in one of the sector funds used to classify. */
+	sector: string | null;
 	/** Whether it can be priced as a US listing; when false, there is no share count. */
 	usListed: boolean;
 	exposure: number;
@@ -141,10 +149,11 @@ type ExposureEntry = {
 
 export const analyzeList = async (content: ListContent): Promise<ListAnalysisResult> => {
 	const entries = parseContent(content);
-	const [records, profileList, listings] = await Promise.all([
+	const [records, profileList, listings, gics] = await Promise.all([
 		Promise.all(entries.map((entry) => getEtfHoldings(entry.symbol))),
 		Promise.all(entries.map((entry) => getFundProfile(entry.symbol))),
-		getUsListings()
+		getUsListings(),
+		getGicsClassifier()
 	]);
 	const profiles = new Map(entries.map((entry, index) => [entry.symbol, profileList[index]]));
 
@@ -347,6 +356,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			id: aggregate.key,
 			symbol: aggregate.symbol,
 			name: aggregate.name,
+			sector: gics?.sectorOf(aggregate.key, aggregate.symbol) ?? null,
 			usListed: aggregate.usListed,
 			exposure: round(exposure, 2),
 			percentOfPortfolio: totalValue > 0 ? round((exposure / totalValue) * 100, 4) : 0,
@@ -434,7 +444,8 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			inputs.map((input) => ({ symbol: input.symbol, kind: input.kind, value: input.value })),
 			profiles,
 			new Map(entries.map((entry, index) => [entry.symbol, records[index]])),
-			totalValue
+			totalValue,
+			gics ? classifySectors(exposures, gics, totalValue) : null
 		),
 		quotes: {
 			requested: requestedSymbols.length,
@@ -556,6 +567,37 @@ const getOrCreateExposure = (map: Map<string, ExposureEntry>, key: string, symbo
 	}
 
 	return entry;
+};
+
+/** Every company's exposure, summed by GICS sector; the rest is unclassified. */
+const classifySectors = (
+	exposures: Map<string, ExposureEntry>,
+	gics: GicsClassifier,
+	totalValue: number
+): BreakdownSet => {
+	const bySector = new Map<string, number>();
+
+	for (const aggregate of exposures.values()) {
+		const sector = gics.sectorOf(aggregate.key, aggregate.symbol);
+
+		if (sector) {
+			bySector.set(sector, (bySector.get(sector) ?? 0) + totalExposure(aggregate));
+		}
+	}
+
+	// As if one fund worth the whole portfolio held the sector totals
+	return combineBreakdowns(
+		[
+			{
+				value: totalValue,
+				rows: Array.from(bySector.entries()).map(([name, exposure]) => ({
+					name,
+					weight: totalValue > 0 ? (exposure / totalValue) * 100 : 0
+				}))
+			}
+		],
+		totalValue
+	);
 };
 
 const totalExposure = (entry: ExposureEntry) => entry.directExposure + entry.viaExposure;

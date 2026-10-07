@@ -11,6 +11,7 @@ import logger from "@logger";
 import router from "@routes";
 import { errorHandler } from "@utils/error";
 import { initSocketServer } from "@services/socket";
+import { getGicsClassifier } from "@services/gics";
 
 const app = express();
 const PORT = config.PORT || 3000;

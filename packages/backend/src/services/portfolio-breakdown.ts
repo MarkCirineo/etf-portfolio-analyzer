@@ -13,7 +13,9 @@ export type BreakdownSet = {
 };
 
 export type PortfolioBreakdown = {
+	/** GICS sectors from a company-by-company look-through; FactSet's when GICS is unavailable. */
 	sectors: BreakdownSet;
+	sectorScheme: "gics" | "factset";
 	countries: BreakdownSet;
 	regions: BreakdownSet;
 	marketCap: BreakdownSet;
@@ -62,7 +64,9 @@ export const buildPortfolioBreakdown = (
 	inputs: PricedInput[],
 	profiles: Map<string, FundProfile>,
 	holdings: Map<string, EtfHoldingsRecord>,
-	totalValue: number
+	totalValue: number,
+	/** Sectors classified company by company; null falls back to the funds' own (FactSet) breakdowns. */
+	gicsSectors: BreakdownSet | null = null
 ): PortfolioBreakdown => {
 	const priced = inputs.filter(
 		(input): input is PricedInput & { value: number } => input.value !== null && input.value > 0
@@ -82,7 +86,8 @@ export const buildPortfolioBreakdown = (
 		);
 
 	return {
-		sectors: breakdown((profile) => profile.sectors),
+		sectors: gicsSectors ?? breakdown((profile) => profile.sectors),
+		sectorScheme: gicsSectors ? "gics" : "factset",
 		countries: breakdown((profile) => profile.countries),
 		regions: breakdown((profile) => profile.regions),
 		marketCap: breakdown((profile) => profile.marketCap),
