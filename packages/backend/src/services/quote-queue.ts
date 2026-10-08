@@ -3,8 +3,8 @@ import logger from "@logger";
 import { saveQuoteFailure, saveQuoteToCache } from "@services/quote-cache";
 
 /**
- * Finnhub's free tier allows 60 calls/minute and the symbol search shares that budget,
- * so dispatch a little slower than one per second.
+ * Finnhub's free tier allows 60 calls/minute, so dispatch a little slower than one per
+ * second.
  */
 const RATE_INTERVAL_MS = 1100;
 /** Dispatch on the interval without waiting for the previous response to come back. */
@@ -15,7 +15,7 @@ const NETWORK_RETRIES = 2;
 const NETWORK_RETRY_DELAY_MS = 500;
 
 type FetchOutcome =
-	| { kind: "ok"; price: number; tradedAt: number | null }
+	| { kind: "ok"; price: number; previousClose: number | null; tradedAt: number | null }
 	| { kind: "rate-limited"; retryAfterMs: number }
 	| { kind: "failed"; reason: string };
 
@@ -124,7 +124,12 @@ const processSymbol = async (symbol: string, priority: number) => {
 
 		switch (outcome.kind) {
 			case "ok":
-				await saveQuoteToCache(symbol, outcome.price, outcome.tradedAt);
+				await saveQuoteToCache(
+					symbol,
+					outcome.price,
+					outcome.previousClose,
+					outcome.tradedAt
+				);
 				break;
 			case "rate-limited":
 				pauseFor(outcome.retryAfterMs);
@@ -179,7 +184,12 @@ const fetchQuote = async (symbol: string): Promise<FetchOutcome> => {
 				return { kind: "failed", reason: "unknown_symbol" };
 			}
 
-			return { kind: "ok", price, tradedAt: parseTradedAt(payload) };
+			return {
+				kind: "ok",
+				price,
+				previousClose: parsePreviousClose(payload),
+				tradedAt: parseTradedAt(payload)
+			};
 		} catch (error) {
 			lastError = error instanceof Error ? error.message : String(error);
 			await sleep(NETWORK_RETRY_DELAY_MS * (attempt + 1));
@@ -232,6 +242,11 @@ const parsePrice = (payload: any): number | undefined => {
 	}
 
 	return undefined;
+};
+
+const parsePreviousClose = (payload: any): number | null => {
+	const previousClose = typeof payload?.pc === "number" ? payload.pc : 0;
+	return previousClose > 0 ? previousClose : null;
 };
 
 const parseTradedAt = (payload: any): number | null => {

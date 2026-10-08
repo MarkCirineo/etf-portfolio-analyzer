@@ -1,10 +1,3 @@
-export type SearchItem = {
-	description: string;
-	displaySymbol: string;
-	symbol: string;
-	type: string;
-};
-
 export type AuthUser = {
 	id: number;
 	email: string;
@@ -13,11 +6,47 @@ export type AuthUser = {
 	avatar: string | null;
 };
 
+export type AccountType = "taxable" | "roth_ira" | "traditional_ira" | "401k" | "hsa" | "other";
+
+/** One brokerage account in a list; the list is its accounts combined. */
+export type Account = {
+	id: string;
+	name: string;
+	institution: string | null;
+	type: AccountType;
+	holdings: Record<string, number>;
+};
+
+/** An account valued from the same prices as the analysis. */
+export type AccountSummary = {
+	id: string;
+	name: string;
+	institution: string | null;
+	type: AccountType;
+	value: number;
+	/** False while any position is still waiting for a price. */
+	valueComplete: boolean;
+	/** Share of every account combined, whatever the current scope. */
+	percentOfPortfolio: number | null;
+	dayChange: number | null;
+	positions: {
+		symbol: string;
+		shares: number;
+		price: number | null;
+		value: number | null;
+		percentOfAccount: number | null;
+	}[];
+};
+
 export type List = {
 	id: string;
 	name: string;
+	/** Every account's holdings added together. */
 	content: Record<string, number>;
+	accounts: Account[];
 	ownerId: number;
+	/** The user's main portfolio; every other list is a scenario. */
+	isPrimary: boolean;
 	createdAt: string;
 	updatedAt: string;
 };
@@ -29,7 +58,9 @@ export type PriceStatus =
 	| "unavailable"
 	| "not-requested"
 	/** Reported under a foreign exchange ticker, which the quote provider cannot resolve. */
-	| "foreign-listing";
+	| "foreign-listing"
+	/** A US-style ticker registered to a differently named company; not priced. */
+	| "unconfirmed-listing";
 
 export type InputKind = "etf" | "stock" | "unknown";
 
@@ -41,12 +72,18 @@ export type ListInput = {
 	price: number | null;
 	priceStatus: PriceStatus;
 	value: number | null;
+	previousClose: number | null;
+	/** Dollar change since the previous close for this position. */
+	dayChange: number | null;
 	percentOfPortfolio: number | null;
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
 	leveraged: boolean;
 	/** Percent of the ETF's weight the holdings provider accounted for; null for non-ETFs. */
 	weightCovered: number | null;
+	/** Percent per year; null for stocks and when the fund profile is unavailable. */
+	expenseRatio: number | null;
+	distributionYield: number | null;
 };
 
 export type EtfContribution = {
@@ -58,8 +95,12 @@ export type EtfContribution = {
 
 /** One security the user is exposed to, directly and/or through ETFs. */
 export type AnalyzedHolding = {
+	/** Unique per security. Tickers are not: MRK is both Merck & Co. and Merck KGaA. */
+	id: string;
 	symbol: string;
 	name: string | null;
+	/** GICS sector, when the company could be classified. */
+	sector: string | null;
 	usListed: boolean;
 	exposure: number;
 	percentOfPortfolio: number;
@@ -81,6 +122,8 @@ export type ListAnalysis = {
 	marketOpen: boolean;
 	totalValue: number;
 	totalValueComplete: boolean;
+	/** Change since the previous close; `complete` is false when some input lacks one. */
+	dayChange: { amount: number; percent: number | null; complete: boolean };
 	inputs: ListInput[];
 	holdings: AnalyzedHolding[];
 	tail: ExposureBucket & { count: number };
@@ -89,6 +132,7 @@ export type ListAnalysis = {
 		byInput: { symbol: string; exposure: number; weightMissing: number }[];
 	};
 	failedTickers: string[];
+	breakdown: PortfolioBreakdown;
 	quotes: {
 		requested: number;
 		priced: number;
@@ -102,5 +146,50 @@ export type ListAnalysis = {
 
 export type ListDetail = {
 	list: List;
+	/** Covers the accounts in `scope`, or all of them when it is null. */
 	analysis: ListAnalysis;
+	/** Every account, valued, whatever the scope. */
+	accounts: AccountSummary[];
+	scope: string[] | null;
+};
+
+export type BreakdownRow = { name: string; exposure: number; percent: number };
+
+export type BreakdownSet = {
+	rows: BreakdownRow[];
+	/** Value no fund attributed to a named row, plus positions without fund data. */
+	unclassified: { exposure: number; percent: number };
+};
+
+/** Portfolio-level view, weighted by each fund's dollar value. */
+export type PortfolioBreakdown = {
+	/**
+	 * GICS sectors, company by company, as shares of the whole portfolio; companies the
+	 * sector lists don't cover are unclassified. FactSet's sectors while GICS is unavailable.
+	 */
+	sectors: BreakdownSet;
+	sectorScheme: "gics" | "factset";
+	countries: BreakdownSet;
+	regions: BreakdownSet;
+	marketCap: BreakdownSet;
+	unprofiled: { symbol: string; value: number }[];
+	fees: { annual: number; expenseRatio: number; complete: boolean };
+	income: { annual: number; yield: number | null; coveredPercent: number };
+	valuation: {
+		priceToEarnings: number | null;
+		priceToBook: number | null;
+		weightedAvgMarketCap: number | null;
+		coveredPercent: number;
+	};
+	/** matrix[i][j] = percent of fund i's weight held in securities fund j also holds. */
+	overlap: { funds: string[]; matrix: (number | null)[][] };
+	/** Growth of $10,000 holding today's mix, rebalanced monthly. Not actual returns. */
+	backtest: {
+		start: string;
+		end: string;
+		points: { month: string; value: number }[];
+		annualizedReturn: number | null;
+		limitedBy: string;
+		coveredPercent: number;
+	} | null;
 };

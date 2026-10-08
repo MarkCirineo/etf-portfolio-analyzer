@@ -1,79 +1,57 @@
-import { finnhubSearch } from "@api/finnhub";
+import { Router, type NextFunction, type Request, type Response } from "express";
+import logger from "@logger";
+import { resolveOwnerId } from "@routes/list/_shared";
+import { searchListings } from "@services/symbol-directory";
 import { HttpError } from "@utils/error";
-import { Request, Router } from "express";
 
 const router = Router();
 
-type QueryParams = {
-	q: string;
-};
+const MAX_QUERY_LENGTH = 50;
 
-type FinnhubSearchResponse = {
-	count: number;
-	result: {
-		symbol: string;
-		displaySymbol: string;
-		description: string;
-		type: string;
-	}[];
-};
+/**
+ * Ticker search for the add-a-holding field, by ticker or company name. Runs against
+ * Nasdaq's daily list of US listings held in memory, so it is instant and free.
+ */
+router.get(
+	"/",
+	async (req: Request<{}, {}, {}, { q?: string }>, res: Response, next: NextFunction) => {
+		try {
+			resolveOwnerId(req);
 
-router.get("/", async (req: Request<{}, {}, {}, QueryParams>, res, next) => {
-	const { q } = req.query;
+			const query = typeof req.query.q === "string" ? req.query.q.trim() : "";
 
-	if (!q) {
-		next(new HttpError("Query parameter 'q' is required", 400));
-	}
+			if (!query) {
+				throw new HttpError("Query parameter 'q' is required", 400);
+			}
 
-	try {
-		const finnhubData: FinnhubSearchResponse = await finnhubSearch(q);
+			if (query.length > MAX_QUERY_LENGTH) {
+				throw new HttpError("Search is too long", 400);
+			}
 
-		if (!finnhubData) {
-			next(new HttpError("No data found", 404));
+			const listings = await searchListings(query);
+
+			if (!listings) {
+				throw new HttpError("Search isn't available right now", 503, true);
+			}
+
+			const result = listings.map((listing) => ({
+				symbol: listing.symbol,
+				description: listing.name,
+				type: listing.etf ? "ETF" : "Stock"
+			}));
+
+			res.status(200).send({ data: { count: result.length, result } });
+		} catch (error) {
+			if (error instanceof HttpError) {
+				return next(error);
+			}
+
+			logger.error(
+				`[search] Failed to search: ${error instanceof Error ? error.message : String(error)}`
+			);
+			next(new HttpError("Search failed", 500));
 		}
-
-		const sortedData = finnhubData.result.sort((a, b) => {
-			const queryLower = q.toLowerCase();
-
-			// Prioritize exact matches in the symbol field
-			const aSymbolExact = a.symbol.toLowerCase() === queryLower;
-			const bSymbolExact = b.symbol.toLowerCase() === queryLower;
-			if (aSymbolExact && !bSymbolExact) return -1;
-			if (!aSymbolExact && bSymbolExact) return 1;
-
-			// Then prioritize exact matches in other fields
-			const aExactMatch = [a.displaySymbol, a.description].some(
-				(field) => field.toLowerCase() === queryLower
-			);
-			const bExactMatch = [b.displaySymbol, b.description].some(
-				(field) => field.toLowerCase() === queryLower
-			);
-			if (aExactMatch && !bExactMatch) return -1;
-			if (!aExactMatch && bExactMatch) return 1;
-
-			// Then prioritize partial matches in the symbol field
-			const aSymbolContains = a.symbol.toLowerCase().includes(queryLower);
-			const bSymbolContains = b.symbol.toLowerCase().includes(queryLower);
-			if (aSymbolContains && !bSymbolContains) return -1;
-			if (!aSymbolContains && bSymbolContains) return 1;
-
-			// Finally, prioritize partial matches in other fields
-			const aContains = [a.displaySymbol, a.description].some((field) =>
-				field.toLowerCase().includes(queryLower)
-			);
-			const bContains = [b.displaySymbol, b.description].some((field) =>
-				field.toLowerCase().includes(queryLower)
-			);
-			if (aContains && !bContains) return -1;
-			if (!aContains && bContains) return 1;
-
-			return 0;
-		});
-
-		res.status(200).send({ data: { count: finnhubData.count, result: sortedData } });
-	} catch (error) {
-		next(new HttpError("Error fetching data", 500));
 	}
-});
+);
 
 export default router;

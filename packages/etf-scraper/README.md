@@ -1,6 +1,6 @@
 # ETF Holdings Service
 
-Fetches ETF holdings from etf.com for the Node backend.
+Fetches ETF holdings and fund profiles from etf.com for the Node backend.
 
 ## Why this is a separate process
 
@@ -48,7 +48,13 @@ reachable.
 {
     "status": "etf",
     "asOf": "2026-08-31",
-    "rows": [{ "symbol": "2330", "name": "Taiwan Semiconductor...", "weight": "3.94%" }]
+    "rows": [
+        {
+            "symbol": "2330",
+            "name": "Taiwan Semiconductor...",
+            "weight": "3.94%"
+        }
+    ]
 }
 ```
 
@@ -56,5 +62,32 @@ reachable.
 Always returns HTTP 200 so the backend can tell a provider problem from a transport one.
 Symbols are as the fund reports them, which for foreign listings means a local exchange
 ticker (`2330`, `005930`) rather than a US symbol.
+
+### `GET /etf-profile/{symbol}`
+
+Fund-level data: sector, country, region and market-cap breakdowns, expense ratio, yield,
+valuation, a monthly growth-of-$10k history, and similar funds. Six requests to etf.com.
+
+```json
+{
+    "status": "etf",
+    "sections": {
+        "summary": [
+            {
+                "name": "expenseRatio",
+                "label": "Expense Ratio",
+                "value": "0.05%"
+            }
+        ],
+        "sectors": [{ "name": "Finance", "weight": "24.71%" }],
+        "growth": [{ "navDate": "2026-09-30", "tenkValue": 25480.5 }]
+    },
+    "errors": {}
+}
+```
+
+Values are passed through as the provider formats them (`"24.71%"`, `"$203.25B"`, `"None%"`);
+the backend parses them. A section whose request fails is left out and named in `errors`,
+so one bad request costs that section rather than the whole profile.
 
 ### `GET /health`

@@ -25,10 +25,6 @@ export const finnhub = async (url: string, returnRaw: boolean = false) => {
 	return response;
 };
 
-export const finnhubSearch = async (query: string) => {
-	return await finnhub(`/search?q=${query}&exchange=US`);
-};
-
 export const finnhubQuote = async (symbol: string) => {
 	return await finnhub(`/quote?symbol=${encodeURIComponent(symbol)}`, true);
 };

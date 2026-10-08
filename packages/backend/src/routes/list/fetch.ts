@@ -2,7 +2,7 @@ import { type Request, type Response, type NextFunction, Router } from "express"
 import db from "@db";
 import logger from "@logger";
 import { HttpError } from "@utils/error";
-import { resolveOwnerId } from "./_shared";
+import { resolveOwnerId, withAccounts } from "./_shared";
 
 const router = Router();
 
@@ -17,6 +17,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])
@@ -24,7 +25,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 			.orderBy("updatedAt", "desc")
 			.execute();
 
-		res.status(200).send({ data: lists });
+		res.status(200).send({ data: await withAccounts(lists) });
 	} catch (error) {
 		if (error instanceof HttpError) {
 			return next(error);
@@ -53,6 +54,7 @@ router.get("/:publicId", async (req: Request, res: Response, next: NextFunction)
 				"name",
 				"content",
 				"ownerId",
+				"isPrimary",
 				"createdAt",
 				"updatedAt"
 			])
@@ -64,7 +66,9 @@ router.get("/:publicId", async (req: Request, res: Response, next: NextFunction)
 			throw new HttpError("List not found", 404);
 		}
 
-		res.status(200).send({ data: list });
+		const [listWithAccounts] = await withAccounts([list]);
+
+		res.status(200).send({ data: listWithAccounts });
 	} catch (error) {
 		if (error instanceof HttpError) {
 			return next(error);

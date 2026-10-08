@@ -10,7 +10,8 @@ import {
 	subscribeToList,
 	unsubscribeFromList,
 	unsubscribeSocket,
-	initListSubscriptions
+	initListSubscriptions,
+	subscriptionKey
 } from "@services/list-subscriptions";
 
 type AuthedSocket = Socket & {
@@ -60,49 +61,61 @@ const authenticateSocket: Parameters<SocketIOServer["use"]>[0] = (socket, next) 
 const registerSocketHandlers = (socket: AuthedSocket) => {
 	logger.info(`[socket] user ${socket.data.userId} connected`);
 
-	socket.on("list:subscribe", async (data: { listId?: string }) => {
-		const { listId } = data;
+	// `accounts` narrows the analysis to some of the list's accounts; each scope is its own room
+	socket.on("list:subscribe", async (data: ListSubscription) => {
+		const { listId, scope } = parseSubscription(data);
 
-		if (!listId || typeof listId !== "string") {
+		if (!listId) {
 			socket.emit("error", { message: "Invalid listId" });
 			return;
 		}
 
-		// Join room for this list
-		const roomName = `list:${listId}`;
-		socket.join(roomName);
-
 		try {
-			await subscribeToList(listId, socket.id, socket.data.userId);
+			const key = await subscribeToList(listId, scope, socket.id, socket.data.userId);
+
+			if (!key) {
+				socket.emit("error", { message: "Failed to subscribe to list" });
+				return;
+			}
+
+			socket.join(`list:${key}`);
 		} catch (error) {
 			logger.error(
 				`[socket] Failed to subscribe to list ${listId}: ${
 					error instanceof Error ? error.message : String(error)
 				}`
 			);
-			socket.leave(roomName);
 			socket.emit("error", { message: "Failed to subscribe to list" });
 		}
 	});
 
-	socket.on("list:unsubscribe", (data: { listId?: string }) => {
-		const { listId } = data;
+	socket.on("list:unsubscribe", (data: ListSubscription) => {
+		const { listId, scope } = parseSubscription(data);
 
-		if (!listId || typeof listId !== "string") {
+		if (!listId) {
 			return;
 		}
 
-		// Leave room for this list
-		const roomName = `list:${listId}`;
-		socket.leave(roomName);
-
-		unsubscribeFromList(listId, socket.id);
+		const key = subscriptionKey(listId, scope);
+		socket.leave(`list:${key}`);
+		unsubscribeFromList(key, socket.id);
 	});
 
 	socket.on("disconnect", () => {
 		logger.info(`[socket] user ${socket.data.userId} disconnected`);
 		unsubscribeSocket(socket.id);
 	});
+};
+
+type ListSubscription = { listId?: unknown; accounts?: unknown } | undefined;
+
+const parseSubscription = (data: ListSubscription) => {
+	const listId = typeof data?.listId === "string" && data.listId ? data.listId : null;
+	const raw = data?.accounts;
+	const accounts: unknown[] = Array.isArray(raw) ? raw : [];
+	const scope = accounts.filter((id): id is string => typeof id === "string" && id.length > 0);
+
+	return { listId, scope: scope.length > 0 ? scope : null };
 };
 
 const extractToken = (socket: Socket): string | undefined => {

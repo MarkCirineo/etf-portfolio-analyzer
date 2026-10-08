@@ -2,8 +2,7 @@ import type { Server as SocketIOServer } from "socket.io";
 
 import logger from "@logger";
 import db from "@db";
-import type { ListContent } from "@db/tables/List";
-import { analyzeList } from "@services/list-analysis";
+import { analyzeAccounts, loadAccounts, type Account } from "@services/accounts";
 import { subscribeToQuoteUpdates, type QuoteBroadcastPayload } from "@services/quote-cache";
 
 /** Quotes arrive about once a second; batch them into one re-analysis. */
@@ -12,17 +11,25 @@ const DEBOUNCE_MS = 3000;
 const INCOMPLETE_RECHECK_MS = 30 * 1000;
 
 type Subscription = {
+	listId: string;
+	/** Account ids the analysis covers; null for all of them. */
+	scope: string[] | null;
 	sockets: Set<string>;
-	content: ListContent;
+	accounts: Account[];
 	trackedSymbols: Set<string>;
 	debounce: NodeJS.Timeout | null;
 	recheck: NodeJS.Timeout | null;
 };
 
+/** Keyed by subscriptionKey: one per list and scope, shared by every socket viewing it. */
 const subscriptions = new Map<string, Subscription>();
 
 let io: SocketIOServer | null = null;
 let unsubscribeQuoteUpdates: (() => Promise<void>) | null = null;
+
+/** Identifies a list viewed through some of its accounts; also names its Socket.IO room. */
+export const subscriptionKey = (listId: string, scope: string[] | null | undefined) =>
+	scope && scope.length > 0 ? `${listId}:${[...scope].sort().join(",")}` : listId;
 
 export const initListSubscriptions = (server: SocketIOServer) => {
 	io = server;
@@ -45,14 +52,20 @@ export const initListSubscriptions = (server: SocketIOServer) => {
 		});
 };
 
+/**
+ * Subscribe a socket to a list, optionally narrowed to some of its accounts. Returns the
+ * subscription key (the room to join), or null if the list is not the user's or the scope
+ * names an account the list does not have.
+ */
 export const subscribeToList = async (
 	listId: string,
+	scope: string[] | null,
 	socketId: string,
 	userId: number
-): Promise<void> => {
+): Promise<string | null> => {
 	const list = await db
 		.selectFrom("lists")
-		.select(["publicId", "content"])
+		.select("publicId")
 		.where("publicId", "=", listId)
 		.where("ownerId", "=", userId)
 		.executeTakeFirst();
@@ -61,34 +74,50 @@ export const subscribeToList = async (
 		logger.warn(
 			`[list-subscriptions] List ${listId} not found or access denied for user ${userId}`
 		);
-		return;
+		return null;
 	}
 
-	let subscription = subscriptions.get(listId);
+	const accounts = (await loadAccounts([listId])).get(listId) ?? [];
+	const known = new Set(accounts.map((account) => account.id));
+
+	if (scope?.some((id) => !known.has(id))) {
+		logger.warn(`[list-subscriptions] Unknown account in scope for list ${listId}`);
+		return null;
+	}
+
+	// Every account is the same as no scope at all
+	const unique = Array.from(new Set(scope ?? []));
+	const narrowed = unique.length > 0 && unique.length < accounts.length ? unique : null;
+	const key = subscriptionKey(listId, narrowed);
+	let subscription = subscriptions.get(key);
 
 	if (!subscription) {
 		subscription = {
+			listId,
+			scope: narrowed,
 			sockets: new Set(),
-			content: list.content,
+			accounts,
 			trackedSymbols: new Set(),
 			debounce: null,
 			recheck: null
 		};
-		subscriptions.set(listId, subscription);
+		subscriptions.set(key, subscription);
 	}
 
 	subscription.sockets.add(socketId);
-	subscription.content = list.content;
+	subscription.accounts = accounts;
 
-	logger.info(`[list-subscriptions] Socket ${socketId} subscribed to list ${listId}`);
+	logger.info(`[list-subscriptions] Socket ${socketId} subscribed to ${key}`);
 
 	// Run once right away: it fills in trackedSymbols and catches anything that changed
 	// while the socket was (re)connecting.
-	scheduleUpdate(listId, 0);
+	scheduleUpdate(key, 0);
+
+	return key;
 };
 
-export const unsubscribeFromList = (listId: string, socketId: string): void => {
-	const subscription = subscriptions.get(listId);
+export const unsubscribeFromList = (key: string, socketId: string): void => {
+	const subscription = subscriptions.get(key);
 
 	if (!subscription) {
 		return;
@@ -98,42 +127,66 @@ export const unsubscribeFromList = (listId: string, socketId: string): void => {
 
 	if (subscription.sockets.size === 0) {
 		clearTimers(subscription);
-		subscriptions.delete(listId);
+		subscriptions.delete(key);
 	}
 
-	logger.info(`[list-subscriptions] Socket ${socketId} unsubscribed from list ${listId}`);
+	logger.info(`[list-subscriptions] Socket ${socketId} unsubscribed from ${key}`);
 };
 
 export const unsubscribeSocket = (socketId: string): void => {
-	for (const [listId, subscription] of subscriptions.entries()) {
+	for (const [key, subscription] of subscriptions.entries()) {
 		if (subscription.sockets.has(socketId)) {
-			unsubscribeFromList(listId, socketId);
+			unsubscribeFromList(key, socketId);
 		}
 	}
 };
 
-/** Keep a live subscription in step with an edit so viewers see the new holdings. */
-export const updateSubscribedListContent = (listId: string, content: ListContent): void => {
-	const subscription = subscriptions.get(listId);
+/** Reload a list's accounts after an edit so everyone viewing it sees the new holdings. */
+export const refreshListSubscriptions = (listId: string): void => {
+	const affected = Array.from(subscriptions.entries()).filter(
+		([, subscription]) => subscription.listId === listId
+	);
 
-	if (!subscription) {
+	if (affected.length === 0) {
 		return;
 	}
 
-	subscription.content = content;
-	scheduleUpdate(listId, 0);
+	void loadAccounts([listId])
+		.then((byList) => {
+			const accounts = byList.get(listId) ?? [];
+			const known = new Set(accounts.map((account) => account.id));
+
+			for (const [key, subscription] of affected) {
+				subscription.accounts = accounts;
+
+				// An account in the scope was deleted: keep what is left of the scope
+				if (subscription.scope) {
+					const remaining = subscription.scope.filter((id) => known.has(id));
+					subscription.scope = remaining.length > 0 ? remaining : null;
+				}
+
+				scheduleUpdate(key, 0);
+			}
+		})
+		.catch((error) => {
+			logger.error(
+				`[list-subscriptions] Failed to reload accounts for list ${listId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`
+			);
+		});
 };
 
 const handleQuoteUpdate = (payload: QuoteBroadcastPayload): void => {
-	for (const [listId, subscription] of subscriptions.entries()) {
+	for (const [key, subscription] of subscriptions.entries()) {
 		if (subscription.trackedSymbols.has(payload.symbol)) {
-			scheduleUpdate(listId, DEBOUNCE_MS);
+			scheduleUpdate(key, DEBOUNCE_MS);
 		}
 	}
 };
 
-const scheduleUpdate = (listId: string, delayMs: number): void => {
-	const subscription = subscriptions.get(listId);
+const scheduleUpdate = (key: string, delayMs: number): void => {
+	const subscription = subscriptions.get(key);
 
 	if (!subscription || subscription.debounce) {
 		return;
@@ -141,19 +194,22 @@ const scheduleUpdate = (listId: string, delayMs: number): void => {
 
 	subscription.debounce = setTimeout(() => {
 		subscription.debounce = null;
-		void processListUpdate(listId);
+		void processListUpdate(key);
 	}, delayMs);
 };
 
-const processListUpdate = async (listId: string): Promise<void> => {
-	const subscription = subscriptions.get(listId);
+const processListUpdate = async (key: string): Promise<void> => {
+	const subscription = subscriptions.get(key);
 
 	if (!subscription || subscription.sockets.size === 0) {
 		return;
 	}
 
 	try {
-		const { analysis, trackedSymbols } = await analyzeList(subscription.content);
+		const { analysis, accounts, scope, trackedSymbols } = await analyzeAccounts(
+			subscription.accounts,
+			subscription.scope
+		);
 		subscription.trackedSymbols = trackedSymbols;
 
 		if (!io) {
@@ -161,10 +217,15 @@ const processListUpdate = async (listId: string): Promise<void> => {
 			return;
 		}
 
-		io.to(`list:${listId}`).emit("list:analysis:update", { listId, analysis });
+		io.to(`list:${key}`).emit("list:analysis:update", {
+			listId: subscription.listId,
+			scope,
+			analysis,
+			accounts
+		});
 
 		logger.debug(
-			`[list-subscriptions] Sent analysis for list ${listId} to ${subscription.sockets.size} socket(s): ${analysis.quotes.priced}/${analysis.quotes.requested} priced`
+			`[list-subscriptions] Sent analysis for ${key} to ${subscription.sockets.size} socket(s): ${analysis.quotes.priced}/${analysis.quotes.requested} priced`
 		);
 
 		if (subscription.recheck) {
@@ -175,17 +236,18 @@ const processListUpdate = async (listId: string): Promise<void> => {
 		const incomplete =
 			analysis.pendingQuotes.length > 0 ||
 			analysis.failedTickers.length > 0 ||
-			!analysis.totalValueComplete;
+			!analysis.totalValueComplete ||
+			accounts.some((account) => !account.valueComplete);
 
 		if (incomplete) {
 			subscription.recheck = setTimeout(() => {
 				subscription.recheck = null;
-				scheduleUpdate(listId, 0);
+				scheduleUpdate(key, 0);
 			}, INCOMPLETE_RECHECK_MS);
 		}
 	} catch (error) {
 		logger.error(
-			`[list-subscriptions] Failed to process update for list ${listId}: ${
+			`[list-subscriptions] Failed to process update for ${key}: ${
 				error instanceof Error ? error.message : String(error)
 			}`
 		);

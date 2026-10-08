@@ -1,139 +1,163 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { toast } from "svelte-sonner";
-	import { Plus, Calendar, Package } from "@lucide/svelte";
+	import Copy from "@lucide/svelte/icons/copy";
+	import Package from "@lucide/svelte/icons/package";
+	import Plus from "@lucide/svelte/icons/plus";
 	import { goto } from "$app/navigation";
+	import Button from "$lib/components/ui/button/button.svelte";
+	import { formatDate, plural } from "$lib/format";
 	import { request } from "$lib/request";
 	import type { List } from "$lib/types";
-	import Button from "$lib/components/ui/button/button.svelte";
 
 	let lists = $state<List[]>([]);
 	let loading = $state(true);
 	let error = $state<string | null>(null);
+	let copying = $state(false);
+
+	const main = $derived(lists.find((list) => list.isPrimary) ?? null);
+	const scenarios = $derived(lists.filter((list) => !list.isPrimary));
 
 	const fetchLists = async () => {
 		loading = true;
 		error = null;
 
 		try {
-			const response = await request("/list", {
-				method: "GET"
-			});
+			const response = await request("/list");
+			const body = await response.json().catch(() => ({}));
 
 			if (!response.ok) {
-				const body = await response.json().catch(() => ({}));
 				throw new Error(body?.message ?? "Failed to fetch lists");
 			}
 
-			const body = await response.json();
-			lists = body.data || [];
+			lists = body.data ?? [];
 		} catch (err) {
-			const message = err instanceof Error ? err.message : "Failed to fetch lists";
-			error = message;
-			toast.error(message);
+			error = err instanceof Error ? err.message : "Failed to fetch lists";
 		} finally {
 			loading = false;
 		}
 	};
 
-	const handleCreateList = () => {
-		goto("/lists/new");
+	/** A scenario starts as a copy of everything in the main portfolio, combined. */
+	const copyMain = async () => {
+		if (!main) return;
+
+		copying = true;
+
+		try {
+			const response = await request("/list", {
+				method: "POST",
+				body: JSON.stringify({
+					name: `What if… (from ${main.name})`,
+					holdings: main.content
+				})
+			});
+			const body = await response.json().catch(() => ({}));
+
+			if (!response.ok) {
+				throw new Error(body?.message ?? "Failed to copy portfolio");
+			}
+
+			await goto(`/lists/${body.data.id}/edit`);
+		} catch (err) {
+			toast.error(err instanceof Error ? err.message : "Failed to copy portfolio");
+		} finally {
+			copying = false;
+		}
 	};
 
-	const formatDate = (dateString: string) => {
-		const date = new Date(dateString);
-		return date.toLocaleDateString("en-US", {
-			year: "numeric",
-			month: "short",
-			day: "numeric"
-		});
-	};
-
-	const getHoldingsCount = (list: List) => {
-		return Object.keys(list.content || {}).length;
-	};
-
-	onMount(() => {
-		fetchLists();
-	});
+	onMount(fetchLists);
 </script>
 
-<div class="container mx-auto max-w-6xl px-4 py-8">
-	<div class="mb-6 flex items-center justify-between">
+<svelte:head>
+	<title>Scenarios · ETF Portfolio Analyzer</title>
+</svelte:head>
+
+{#snippet card(list: List, badge: string | null, href: string)}
+	<a
+		{href}
+		class="group flex flex-col gap-3 rounded-2xl border bg-card p-5 transition-colors hover:border-zinc-300 hover:bg-accent/40 dark:hover:border-zinc-700"
+	>
+		<div class="flex items-start justify-between gap-2">
+			<h3 class="truncate text-lg font-semibold">{list.name || "Untitled"}</h3>
+			{#if badge}
+				<span
+					class="shrink-0 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+					>{badge}</span
+				>
+			{/if}
+		</div>
+		<p class="truncate font-mono text-[13px] text-muted-foreground">
+			{Object.keys(list.content).slice(0, 6).join(" · ") || "No holdings"}
+		</p>
+		<p class="mt-auto text-xs text-muted-foreground">
+			{plural(Object.keys(list.content).length, "holding")}{list.accounts.length > 1
+				? ` · ${plural(list.accounts.length, "account")}`
+				: ""} · updated {formatDate(list.updatedAt)}
+		</p>
+	</a>
+{/snippet}
+
+<div class="mx-auto flex max-w-7xl flex-col gap-6 px-4 pb-16 pt-8 sm:px-6">
+	<div class="flex flex-wrap items-end justify-between gap-4">
 		<div>
-			<h1 class="text-3xl font-bold text-zinc-900 dark:text-zinc-100">My Lists</h1>
-			<p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-				Manage and view all your ETF portfolio lists
+			<h1 class="text-3xl font-semibold tracking-tight">Scenarios</h1>
+			<p class="mt-1.5 max-w-2xl text-muted-foreground">
+				Try out a different mix without touching your real portfolio: swap a fund, add a new
+				one, and see how fees, income, sectors and overlap would change.
 			</p>
 		</div>
-		<Button onclick={handleCreateList} class="gap-2">
-			<Plus class="size-4" />
-			Create New List
-		</Button>
+		<div class="flex flex-wrap gap-2">
+			{#if main}
+				<Button
+					variant="outline"
+					onclick={copyMain}
+					disabled={copying}
+					class="min-h-11 gap-2 px-4"
+				>
+					<Copy class="size-4" />
+					Start from my portfolio
+				</Button>
+			{/if}
+			<Button href="/lists/new" class="min-h-11 gap-2 px-4">
+				<Plus class="size-4" />
+				New scenario
+			</Button>
+		</div>
 	</div>
 
 	{#if loading}
-		<div class="flex items-center justify-center py-12">
-			<p class="text-zinc-600 dark:text-zinc-400">Loading lists...</p>
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true">
+			{#each Array(3) as _, index (index)}
+				<div class="h-36 animate-pulse rounded-2xl bg-muted"></div>
+			{/each}
 		</div>
 	{:else if error}
 		<div
-			class="rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20"
+			class="rounded-2xl border border-red-200 bg-red-50 p-6 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
 		>
-			<p class="text-sm text-red-800 dark:text-red-200">{error}</p>
-			<Button variant="outline" size="sm" class="mt-4" onclick={fetchLists}>Try Again</Button>
-		</div>
-	{:else if lists.length === 0}
-		<div
-			class="rounded-md border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700"
-		>
-			<Package class="mx-auto mb-4 size-12 text-zinc-400 dark:text-zinc-600" />
-			<h3 class="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-				No lists yet
-			</h3>
-			<p class="mb-6 text-sm text-zinc-600 dark:text-zinc-400">
-				Get started by creating your first ETF portfolio list
-			</p>
-			<Button onclick={handleCreateList} class="gap-2">
-				<Plus class="size-4" />
-				Create Your First List
-			</Button>
+			<p>{error}</p>
+			<Button variant="outline" class="mt-4" onclick={fetchLists}>Try again</Button>
 		</div>
 	{:else}
 		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-			{#each lists as list}
-				<div
-					class="group cursor-pointer rounded-lg border border-zinc-200 bg-white p-6 transition-all hover:border-zinc-300 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
-					role="button"
-					tabindex="0"
-					onclick={() => goto(`/lists/${list.id}`)}
-					onkeydown={(e) => {
-						if (e.key === "Enter" || e.key === " ") {
-							goto(`/lists/${list.id}`);
-						}
-					}}
-				>
-					<div class="mb-4">
-						<h3 class="mb-2 text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-							{list.name || "Untitled List"}
-						</h3>
-					</div>
-					<div class="space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
-						<div class="flex items-center gap-2">
-							<Package class="size-4" />
-							<span
-								>{getHoldingsCount(list)} holding{getHoldingsCount(list) === 1
-									? ""
-									: "s"}</span
-							>
-						</div>
-						<div class="flex items-center gap-2">
-							<Calendar class="size-4" />
-							<span>Updated {formatDate(list.updatedAt)}</span>
-						</div>
-					</div>
-				</div>
+			{#if main}
+				{@render card(main, "Main portfolio", "/")}
+			{/if}
+			{#each scenarios as list (list.id)}
+				{@render card(list, null, `/lists/${list.id}`)}
 			{/each}
 		</div>
+		{#if scenarios.length === 0}
+			<div class="rounded-2xl border border-dashed p-10 text-center">
+				<Package class="mx-auto mb-3 size-10 text-muted-foreground" />
+				<h2 class="font-semibold">No scenarios yet</h2>
+				<p class="mt-1 text-sm text-muted-foreground">
+					{main
+						? "Start from a copy of your portfolio, or build one from scratch."
+						: "Build a list of funds to see what you'd own."}
+				</p>
+			</div>
+		{/if}
 	{/if}
 </div>

@@ -1,18 +1,21 @@
 import config from "@config";
 import logger from "@logger";
 import { redisGetJSON, redisSetJSON } from "@redis";
+import { securityKey } from "@utils/security-identity";
 
 export type EtfHolding = {
+	/** Identifies the security: ticker plus name, since tickers repeat across exchanges. */
+	key: string;
 	symbol: string;
 	/** Percent of the fund, 0-100. */
 	weight: number;
 	name?: string;
 	/**
-	 * Whether the symbol can plausibly be priced as a US listing. Funds report foreign
-	 * positions under their local exchange ticker (2330 for TSMC, 005930 for Samsung),
-	 * which the quote provider cannot resolve.
+	 * The ticker is shaped like a US one. Numeric local tickers (2330 for TSMC, 005930 for
+	 * Samsung) never are, but this is not proof of a US listing: Merck KGaA's MRK passes
+	 * too. Pricing also checks the name against the SEC's register (us-listings.ts).
 	 */
-	usListed: boolean;
+	usStyleTicker: boolean;
 };
 
 /** Cash, treasuries, swaps and other rows the fund reports without a ticker. */
@@ -35,6 +38,8 @@ export type EtfHoldingsRecord = {
 	leveraged: boolean;
 	source: HoldingsSource | null;
 	fetchedAt: number;
+	/** Shape version; cached records in an older shape are fetched again. */
+	version?: number;
 	error?: string;
 };
 
@@ -51,12 +56,13 @@ const PROVIDER_MIN_INTERVAL_MS = 1100;
 
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 
-/**
- * Letters with an optional dot or dash, which is what US tickers look like (BRK-B, BF.B).
- * Numeric tickers (2330, 005930, 700) are always foreign listings. Some letter-only
- * foreign tickers slip through; those fail their quote once and are negative-cached.
- */
+/** Letters with an optional dot or dash, which is what US tickers look like (BRK-B, BF.B). */
 const US_SYMBOL_PATTERN = /^[A-Z][A-Z.-]{0,6}$/;
+/**
+ * Bumped when the record shape changes. Version 2 keys holdings by security rather than
+ * ticker; version 1 records merged different companies that share a ticker.
+ */
+const HOLDINGS_RECORD_VERSION = 2;
 
 const buildCacheKey = (symbol: string) => `${CACHE_PREFIX}:${symbol}`;
 
@@ -92,6 +98,7 @@ export const getEtfHoldings = async (symbol: string): Promise<EtfHoldingsRecord>
 	}
 
 	const ttl = record.status === "error" ? ERROR_TTL_MS : HARD_TTL_MS;
+	record.version = HOLDINGS_RECORD_VERSION;
 
 	await redisSetJSON(cacheKey, record, ttl).catch((error) => {
 		logger.warn(`[etf-holdings] Failed to cache ${normalized}: ${describe(error)}`);
@@ -308,7 +315,7 @@ const collectHoldings = (
 	rows: unknown[],
 	read: (row: Record<string, any>) => { symbol: string; name: string; weight: number }
 ) => {
-	const bySymbol = new Map<string, EtfHolding>();
+	const byKey = new Map<string, EtfHolding>();
 	const nonEquity: NonEquityHolding[] = [];
 
 	for (const row of rows) {
@@ -327,23 +334,26 @@ const collectHoldings = (
 			continue;
 		}
 
-		const existing = bySymbol.get(symbol);
+		// The same security can appear more than once (lots), and one fund can hold two
+		// different companies under one ticker (VXUS: SAN is Banco Santander and Sanofi)
+		const key = securityKey(symbol, name);
+		const existing = byKey.get(key);
 
 		if (existing) {
-			// The same security can appear more than once (share classes, lots)
 			existing.weight = round(existing.weight + weight);
 			continue;
 		}
 
-		bySymbol.set(symbol, {
+		byKey.set(key, {
+			key,
 			symbol,
 			weight,
-			usListed: US_SYMBOL_PATTERN.test(symbol),
+			usStyleTicker: US_SYMBOL_PATTERN.test(symbol),
 			...(name && { name })
 		});
 	}
 
-	const holdings = Array.from(bySymbol.values()).sort((a, b) => b.weight - a.weight);
+	const holdings = Array.from(byKey.values()).sort((a, b) => b.weight - a.weight);
 
 	return { holdings, nonEquity };
 };
@@ -358,7 +368,7 @@ const logReceived = (
 	const covered =
 		parsed.holdings.reduce((sum, holding) => sum + holding.weight, 0) +
 		parsed.nonEquity.reduce((sum, item) => sum + item.weight, 0);
-	const foreign = parsed.holdings.filter((holding) => !holding.usListed).length;
+	const foreign = parsed.holdings.filter((holding) => !holding.usStyleTicker).length;
 
 	logger.info(
 		`[etf-holdings] ${symbol} via ${source}: ${parsed.holdings.length} holdings (${foreign} foreign-listed), ${parsed.nonEquity.length} other, ${totalRows} rows, ${covered.toFixed(2)}% of fund covered (as of ${asOf ?? "unknown"})`
@@ -437,8 +447,7 @@ const isRecordShape = (value: unknown): value is EtfHoldingsRecord => {
 		typeof value.status === "string" &&
 		Array.isArray(value.holdings) &&
 		typeof value.fetchedAt === "number" &&
-		// Entries cached before holdings carried a source or listing flags
-		"source" in value
+		value.version === HOLDINGS_RECORD_VERSION
 	);
 };
 

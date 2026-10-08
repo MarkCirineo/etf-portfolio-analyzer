@@ -3,6 +3,8 @@ import { CamelCasePlugin, Kysely, PostgresDialect } from "kysely";
 import config from "@config.js";
 import UserTable from "@db/tables/User.js";
 import ListTable from "@db/tables/List.js";
+import type AccountTable from "@db/tables/Account.js";
+import type { AccountHoldingTable } from "@db/tables/Account.js";
 import { createTables } from "@db/tables";
 
 const { Pool } = pg;
@@ -10,6 +12,8 @@ const { Pool } = pg;
 export interface Database {
 	users: UserTable;
 	lists: ListTable;
+	accounts: AccountTable;
+	account_holdings: AccountHoldingTable;
 }
 
 const db = new Kysely<Database>({

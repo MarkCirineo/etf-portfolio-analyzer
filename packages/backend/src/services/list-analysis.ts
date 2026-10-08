@@ -1,5 +1,14 @@
 import type { ListContent } from "@db/tables/List";
 import { getEtfHoldings, type EtfHoldingsRecord } from "@services/etf-holdings";
+import { getFundProfile, type FundProfile } from "@services/fund-profile";
+import { getGicsClassifier, type GicsClassifier } from "@services/gics";
+import {
+	buildPortfolioBreakdown,
+	combineBreakdowns,
+	type BreakdownSet,
+	type PortfolioBreakdown
+} from "@services/portfolio-breakdown";
+import { getUsListings, isUsListing } from "@services/us-listings";
 import { getMarketSession } from "@utils/market-hours";
 import { getQuoteSnapshots, type PriceStatus, type QuoteSnapshot } from "@utils/quotes";
 
@@ -12,7 +21,7 @@ export const MAX_QUOTED_HOLDINGS = 300;
 /** Rows returned per analysis; anything beyond is summarised in `tail`. */
 export const MAX_RETURNED_HOLDINGS = 500;
 /** The list's own symbols are priced first: their prices unlock everything else. */
-const INPUT_PRIORITY = 1000;
+export const INPUT_PRIORITY = 1000;
 
 export type InputKind = "etf" | "stock" | "unknown";
 
@@ -24,6 +33,9 @@ export type ListInput = {
 	price: number | null;
 	priceStatus: PriceStatus;
 	value: number | null;
+	previousClose: number | null;
+	/** Dollar change since the previous close for this position. */
+	dayChange: number | null;
 	percentOfPortfolio: number | null;
 	holdingsCount: number | null;
 	holdingsAsOf: string | null;
@@ -35,6 +47,9 @@ export type ListInput = {
 	 * partial. Null for anything that is not an ETF.
 	 */
 	weightCovered: number | null;
+	/** Percent per year; null for stocks and when the fund profile is unavailable. */
+	expenseRatio: number | null;
+	distributionYield: number | null;
 };
 
 export type EtfContribution = {
@@ -46,9 +61,13 @@ export type EtfContribution = {
 
 /** One security the user is exposed to, directly and/or through ETFs. */
 export type AnalyzedHolding = {
+	/** Unique per security. Tickers are not: MRK is Merck & Co. and Merck KGaA. */
+	id: string;
 	symbol: string;
 	name: string | null;
-	/** False for positions a fund reports under a foreign exchange ticker; never priced. */
+	/** GICS sector, when the company is in one of the sector funds used to classify. */
+	sector: string | null;
+	/** Whether it can be priced as a US listing; when false, there is no share count. */
 	usListed: boolean;
 	exposure: number;
 	percentOfPortfolio: number;
@@ -72,6 +91,11 @@ export type ListAnalysis = {
 	totalValue: number;
 	/** False while any input is still waiting for a price. */
 	totalValueComplete: boolean;
+	/**
+	 * Change since the previous close across the inputs that have one. `complete` is false
+	 * when some input has no previous close yet, so the figure is partial.
+	 */
+	dayChange: { amount: number; percent: number | null; complete: boolean };
 	inputs: ListInput[];
 	holdings: AnalyzedHolding[];
 	/** Holdings beyond MAX_RETURNED_HOLDINGS. */
@@ -87,6 +111,8 @@ export type ListAnalysis = {
 	};
 	/** Inputs whose holdings lookup failed; treated as directly held stock for now. */
 	failedTickers: string[];
+	/** Sectors, geography, fees, income, valuation, fund overlap and backtest. */
+	breakdown: PortfolioBreakdown;
 	quotes: {
 		requested: number;
 		priced: number;
@@ -106,9 +132,14 @@ export type ListAnalysisResult = {
 };
 
 type ExposureEntry = {
+	key: string;
 	symbol: string;
 	name: string | null;
-	/** False when every fund reporting it uses a non-US ticker, so it cannot be priced. */
+	/** Some fund reports it under a US-shaped ticker. */
+	usStyleTicker: boolean;
+	/** Held by a fund that is almost entirely North American. */
+	inUsFund: boolean;
+	/** Can be priced as a US listing; decided once every input is spread. */
 	usListed: boolean;
 	directShares: number;
 	directExposure: number;
@@ -118,7 +149,13 @@ type ExposureEntry = {
 
 export const analyzeList = async (content: ListContent): Promise<ListAnalysisResult> => {
 	const entries = parseContent(content);
-	const records = await Promise.all(entries.map((entry) => getEtfHoldings(entry.symbol)));
+	const [records, profileList, listings, gics] = await Promise.all([
+		Promise.all(entries.map((entry) => getEtfHoldings(entry.symbol))),
+		Promise.all(entries.map((entry) => getFundProfile(entry.symbol))),
+		getUsListings(),
+		getGicsClassifier()
+	]);
+	const profiles = new Map(entries.map((entry, index) => [entry.symbol, profileList[index]]));
 
 	// 1. Price the list's own symbols. Everything downstream hangs off these.
 	const inputSymbols = entries.map((entry) => entry.symbol);
@@ -131,8 +168,12 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 	const unaccountedByInput: { symbol: string; exposure: number; weightMissing: number }[] = [];
 	const inputs: ListInput[] = [];
 	const failedTickers: string[] = [];
+	const directHoldings: { symbol: string; shares: number; value: number | null }[] = [];
 	let totalValue = 0;
 	let totalValueComplete = true;
+	let dayChangeTotal = 0;
+	let previousValue = 0;
+	let dayChangeComplete = true;
 
 	entries.forEach((entry, index) => {
 		const record = records[index];
@@ -140,6 +181,18 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		const kind = classifyInput(record);
 		const price = quote?.price ?? null;
 		const value = price !== null ? entry.shares * price : null;
+		const previousClose = quote?.previousClose ?? null;
+		const dayChange =
+			price !== null && previousClose !== null
+				? entry.shares * (price - previousClose)
+				: null;
+
+		if (dayChange === null || previousClose === null) {
+			dayChangeComplete = false;
+		} else {
+			dayChangeTotal += dayChange;
+			previousValue += entry.shares * previousClose;
+		}
 
 		if (kind === "unknown") {
 			failedTickers.push(entry.symbol);
@@ -158,21 +211,25 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			price,
 			priceStatus: quote?.status ?? "pending",
 			value,
+			previousClose,
+			dayChange: dayChange === null ? null : round(dayChange, 2),
 			percentOfPortfolio: null,
 			holdingsCount: kind === "etf" ? record.holdings.length : null,
 			holdingsAsOf: kind === "etf" ? record.asOf : null,
 			leveraged: kind === "etf" && record.leveraged,
-			weightCovered: null
+			weightCovered: null,
+			expenseRatio:
+				kind === "etf" ? (profiles.get(entry.symbol)?.expenseRatio ?? null) : null,
+			distributionYield:
+				kind === "etf" ? (profiles.get(entry.symbol)?.distributionYield ?? null) : null
 		};
 
 		inputs.push(inputRow);
 
 		if (kind !== "etf") {
-			// Directly held (or unresolvable, which is treated the same until it resolves)
-			const aggregate = getOrCreateExposure(exposures, entry.symbol);
-			aggregate.usListed = true;
-			aggregate.directShares += entry.shares;
-			aggregate.directExposure += value ?? 0;
+			// Directly held (or unresolvable, treated the same until it resolves). Attached
+			// after every fund is spread, so it can join the right listing of its ticker.
+			directHoldings.push({ symbol: entry.symbol, shares: entry.shares, value });
 			return;
 		}
 
@@ -182,11 +239,13 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		}
 
 		let reportedWeight = 0;
+		const usFund = isUsFund(profiles.get(entry.symbol));
 
 		for (const holding of record.holdings) {
 			const exposure = (value * holding.weight) / 100;
-			const aggregate = getOrCreateExposure(exposures, holding.symbol);
-			aggregate.usListed = aggregate.usListed || holding.usListed;
+			const aggregate = getOrCreateExposure(exposures, holding.key, holding.symbol);
+			aggregate.usStyleTicker = aggregate.usStyleTicker || holding.usStyleTicker;
+			aggregate.inUsFund = aggregate.inUsFund || usFund;
 			aggregate.viaExposure += exposure;
 			aggregate.viaEtfs.push({ etf: entry.symbol, weight: holding.weight, exposure });
 			reportedWeight += holding.weight;
@@ -216,6 +275,16 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			});
 		}
 	});
+
+	for (const direct of directHoldings) {
+		const aggregate = findListing(exposures, direct.symbol, listings);
+		aggregate.directShares += direct.shares;
+		aggregate.directExposure += direct.value ?? 0;
+	}
+
+	for (const aggregate of exposures.values()) {
+		aggregate.usListed = canPriceAsUsListing(aggregate, listings);
+	}
 
 	for (const input of inputs) {
 		input.percentOfPortfolio =
@@ -251,19 +320,29 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			break;
 		}
 
-		holdingPriorities.set(aggregate.symbol, totalValue > 0 ? (exposure / totalValue) * 100 : 0);
+		const priority = totalValue > 0 ? (exposure / totalValue) * 100 : 0;
+		// Two securities can share a priceable ticker (Rio Tinto plc and Limited)
+		holdingPriorities.set(
+			aggregate.symbol,
+			Math.max(priority, holdingPriorities.get(aggregate.symbol) ?? 0)
+		);
 	}
 
-	const holdingSymbols = ranked
-		.filter((aggregate) => aggregate.usListed && !inputPriorities.has(aggregate.symbol))
-		.map((aggregate) => aggregate.symbol);
+	const holdingSymbols = Array.from(
+		new Set(
+			ranked
+				.filter((aggregate) => aggregate.usListed && !inputPriorities.has(aggregate.symbol))
+				.map((aggregate) => aggregate.symbol)
+		)
+	);
 	const holdingQuotes = await getQuoteSnapshots(holdingSymbols, holdingPriorities);
 	const quoteFor = (symbol: string): QuoteSnapshot | undefined =>
 		inputQuotes.get(symbol) ?? holdingQuotes.get(symbol);
 
 	// 4. Assemble the rows.
 	const rows: AnalyzedHolding[] = ranked.map((aggregate) => {
-		const quote = quoteFor(aggregate.symbol);
+		// Never lend a ticker's US price to a different company that shares it
+		const quote = aggregate.usListed ? quoteFor(aggregate.symbol) : undefined;
 		const price = quote?.price ?? null;
 		const exposure = totalExposure(aggregate);
 		const derivedShares =
@@ -274,8 +353,10 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 					: null;
 
 		return {
+			id: aggregate.key,
 			symbol: aggregate.symbol,
 			name: aggregate.name,
+			sector: gics?.sectorOf(aggregate.key, aggregate.symbol) ?? null,
 			usListed: aggregate.usListed,
 			exposure: round(exposure, 2),
 			percentOfPortfolio: totalValue > 0 ? round((exposure / totalValue) * 100, 4) : 0,
@@ -286,7 +367,9 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			price,
 			priceStatus: aggregate.usListed
 				? (quote?.status ?? "not-requested")
-				: "foreign-listing",
+				: aggregate.usStyleTicker
+					? "unconfirmed-listing"
+					: "foreign-listing",
 			viaEtfs: aggregate.viaEtfs
 				.sort((a, b) => b.exposure - a.exposure)
 				.map((via) => ({
@@ -331,6 +414,11 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 		marketOpen: getMarketSession().isOpen,
 		totalValue: round(totalValue, 2),
 		totalValueComplete,
+		dayChange: {
+			amount: round(dayChangeTotal, 2),
+			percent: previousValue > 0 ? round((dayChangeTotal / previousValue) * 100, 4) : null,
+			complete: dayChangeComplete
+		},
 		inputs,
 		holdings: returned,
 		tail: {
@@ -352,6 +440,13 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 				.map((item) => ({ ...item, exposure: round(item.exposure, 2) }))
 		},
 		failedTickers,
+		breakdown: buildPortfolioBreakdown(
+			inputs.map((input) => ({ symbol: input.symbol, kind: input.kind, value: input.value })),
+			profiles,
+			new Map(entries.map((entry, index) => [entry.symbol, records[index]])),
+			totalValue,
+			gics ? classifySectors(exposures, gics, totalValue) : null
+		),
 		quotes: {
 			requested: requestedSymbols.length,
 			priced,
@@ -392,23 +487,117 @@ const classifyInput = (record: EtfHoldingsRecord): InputKind => {
 	return record.status === "etf" && record.holdings.length > 0 ? "etf" : "stock";
 };
 
-const getOrCreateExposure = (map: Map<string, ExposureEntry>, symbol: string) => {
-	let entry = map.get(symbol);
+/** North American share at or above which a fund's holdings are taken to be US listings. */
+const US_FUND_THRESHOLD = 95;
+
+const isUsFund = (profile: FundProfile | undefined) => {
+	const northAmerica = profile?.regions.find((region) => region.name === "North America");
+	return (northAmerica?.weight ?? 0) >= US_FUND_THRESHOLD;
+};
+
+/**
+ * Whether a security can be priced under its ticker. Directly held stocks always can.
+ * Otherwise the name must match the company the SEC registers under that ticker, or the
+ * security must be held by a US fund — which catches renames the SEC list lags on (GE
+ * Aerospace is still "GENERAL ELECTRIC CO"), while a foreign company sharing a US ticker
+ * (Merck KGaA's MRK) only ever turns up in international funds.
+ */
+const canPriceAsUsListing = (
+	aggregate: ExposureEntry,
+	listings: Map<string, string> | null
+): boolean => {
+	if (aggregate.directShares > 0) {
+		return true;
+	}
+
+	if (!aggregate.usStyleTicker) {
+		return false;
+	}
+
+	if (!listings) {
+		// Without the SEC list, fall back to the ticker's shape
+		return true;
+	}
+
+	return isUsListing(listings, aggregate.symbol, aggregate.name) || aggregate.inUsFund;
+};
+
+/**
+ * The security a directly held ticker refers to: the fund-held one the SEC confirms as
+ * that ticker's US listing, else the only one there is, else a row of its own.
+ */
+const findListing = (
+	map: Map<string, ExposureEntry>,
+	symbol: string,
+	listings: Map<string, string> | null
+): ExposureEntry => {
+	const candidates = Array.from(map.values()).filter((entry) => entry.symbol === symbol);
+	const confirmed = listings
+		? candidates.find((entry) => isUsListing(listings, symbol, entry.name))
+		: undefined;
+
+	if (confirmed) {
+		return confirmed;
+	}
+
+	if (candidates.length === 1) {
+		return candidates[0];
+	}
+
+	return getOrCreateExposure(map, `${symbol}|direct`, symbol);
+};
+
+const getOrCreateExposure = (map: Map<string, ExposureEntry>, key: string, symbol: string) => {
+	let entry = map.get(key);
 
 	if (!entry) {
 		entry = {
+			key,
 			symbol,
 			name: null,
+			usStyleTicker: false,
+			inUsFund: false,
 			usListed: false,
 			directShares: 0,
 			directExposure: 0,
 			viaExposure: 0,
 			viaEtfs: []
 		};
-		map.set(symbol, entry);
+		map.set(key, entry);
 	}
 
 	return entry;
+};
+
+/** Every company's exposure, summed by GICS sector; the rest is unclassified. */
+const classifySectors = (
+	exposures: Map<string, ExposureEntry>,
+	gics: GicsClassifier,
+	totalValue: number
+): BreakdownSet => {
+	const bySector = new Map<string, number>();
+
+	for (const aggregate of exposures.values()) {
+		const sector = gics.sectorOf(aggregate.key, aggregate.symbol);
+
+		if (sector) {
+			bySector.set(sector, (bySector.get(sector) ?? 0) + totalExposure(aggregate));
+		}
+	}
+
+	// As if one fund worth the whole portfolio held the sector totals
+	return combineBreakdowns(
+		[
+			{
+				value: totalValue,
+				rows: Array.from(bySector.entries()).map(([name, exposure]) => ({
+					name,
+					weight: totalValue > 0 ? (exposure / totalValue) * 100 : 0
+				}))
+			}
+		],
+		totalValue
+	);
 };
 
 const totalExposure = (entry: ExposureEntry) => entry.directExposure + entry.viaExposure;
