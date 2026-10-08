@@ -63,7 +63,8 @@ cd ../etf-scraper && python -m venv venv && source venv/bin/activate && pip inst
 ```
 
 1. Copy `packages/backend/src/example.config.ts` to `config.ts` beside it and fill in the API
-   keys, Postgres, Redis, a JWT secret, and the frontend origin (`http://localhost:5173`).
+   keys, Postgres, Redis, a JWT secret, and the frontend origin (`http://localhost:5173`),
+   either in the file or as the environment variables it reads.
 2. Set `VITE_API_URL` in `packages/frontend/.env` (`http://localhost:3100/api` for a backend on
    port 3100).
 
@@ -78,6 +79,10 @@ yarn etf-scraper:dev # holdings service only, :3101 (activate its virtualenv fir
 
 Native modules are built for the platform that ran `yarn install`, so run the backend where
 you installed it (inside WSL, for example, if Postgres and Redis live there).
+
+## Deploying
+
+Docker Compose behind nginx; see [DEPLOY.md](DEPLOY.md).
 
 ## Checks
 

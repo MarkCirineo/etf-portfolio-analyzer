@@ -1,0 +1,76 @@
+# Production stack. Settings live in .env beside this file (copy .env.example).
+# Only the web container is published, on localhost, for the server's nginx to proxy.
+name: etf-portfolio-analyzer
+
+services:
+    web:
+        build: ./packages/frontend
+        ports:
+            - "127.0.0.1:${WEB_PORT:-8080}:80"
+        depends_on:
+            - backend
+        restart: unless-stopped
+
+    backend:
+        build: ./packages/backend
+        environment:
+            PORT: 3100
+            FINNHUB_API_KEY: ${FINNHUB_API_KEY:?Set FINNHUB_API_KEY in .env}
+            ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+            ETF_SCRAPER_URL: http://etf-scraper:3101
+            SEC_USER_AGENT: ${SEC_USER_AGENT:-}
+            JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+            DB_HOST: postgres
+            DB_PORT: 5432
+            DB_USER: ${POSTGRES_USER:-etf}
+            DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+            DB_NAME: ${POSTGRES_DB:-etf}
+            REDIS_HOST: redis
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            etf-scraper:
+                condition: service_started
+        restart: unless-stopped
+
+    etf-scraper:
+        build: ./packages/etf-scraper
+        restart: unless-stopped
+
+    postgres:
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_USER: ${POSTGRES_USER:-etf}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+            POSTGRES_DB: ${POSTGRES_DB:-etf}
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        restart: unless-stopped
+
+    redis:
+        image: redis:7-alpine
+        # Persist the caches so a restart doesn't refetch every fund and price
+        command: ["redis-server", "--appendonly", "yes"]
+        volumes:
+            - redisdata:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+        restart: unless-stopped
+
+volumes:
+    pgdata:
+    redisdata:
