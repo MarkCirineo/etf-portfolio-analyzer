@@ -3,8 +3,8 @@ import logger from "@logger";
 import { saveQuoteFailure, saveQuoteToCache } from "@services/quote-cache";
 
 /**
- * Finnhub's free tier allows 60 calls/minute and the symbol search shares that budget,
- * so dispatch a little slower than one per second.
+ * Finnhub's free tier allows 60 calls/minute, so dispatch a little slower than one per
+ * second.
  */
 const RATE_INTERVAL_MS = 1100;
 /** Dispatch on the interval without waiting for the previous response to come back. */

@@ -4,6 +4,7 @@
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { formatCurrency, formatMoney } from "$lib/format";
 	import { parseShares, rowValue, type HoldingRow } from "$lib/holdings";
+	import SymbolSearch from "./symbol-search.svelte";
 
 	let {
 		rows = $bindable(),
@@ -25,6 +26,10 @@
 	let newSymbol = $state("");
 	let newShares = $state("");
 	let symbolInput = $state<HTMLInputElement | null>(null);
+	let sharesInput = $state<HTMLInputElement | null>(null);
+
+	/** Ticker shaped: letters, digits, dots and dashes (BRK.B, BF-B), no spaces. */
+	const TICKER = /^[A-Z0-9][A-Z0-9.-]{0,9}$/;
 
 	const add = (event: SubmitEvent) => {
 		event.preventDefault();
@@ -34,6 +39,13 @@
 
 		if (!symbol) {
 			toast.error("Enter a ticker symbol");
+			return;
+		}
+
+		if (!TICKER.test(symbol)) {
+			// A company name typed without picking a match
+			toast.error("Pick a match from the list, or type the ticker");
+			symbolInput?.focus();
 			return;
 		}
 
@@ -140,20 +152,18 @@
 <form onsubmit={add} class="flex flex-wrap items-end gap-3 rounded-xl bg-muted/70 p-4">
 	<div class="flex min-w-48 flex-[2] flex-col gap-1.5">
 		<label for="new-symbol" class="text-[13px] font-medium">Add a holding</label>
-		<input
+		<SymbolSearch
 			id="new-symbol"
-			bind:this={symbolInput}
-			type="text"
-			autocomplete="off"
-			placeholder="Symbol, like SCHD or MSFT"
 			bind:value={newSymbol}
-			class="min-h-11 rounded-lg border bg-card px-3 uppercase placeholder:normal-case focus:outline-none focus:ring-2 focus:ring-ring"
+			bind:input={symbolInput}
+			onpick={() => sharesInput?.focus()}
 		/>
 	</div>
 	<div class="flex min-w-28 flex-1 flex-col gap-1.5">
 		<label for="new-shares" class="text-[13px] font-medium">Shares</label>
 		<input
 			id="new-shares"
+			bind:this={sharesInput}
 			type="text"
 			inputmode="decimal"
 			placeholder="0"
