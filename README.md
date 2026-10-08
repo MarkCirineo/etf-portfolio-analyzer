@@ -1,34 +1,46 @@
 # ETF Portfolio Analyzer
 
-Enter the ETFs and stocks you hold, with share counts, and see what you actually own: every
-underlying security by dollar exposure and percent of portfolio, plus an estimated share
-count of each (e.g. how many shares of Apple you own through VTI and SPY).
+See what you actually own. Add your brokerage accounts and the ETFs and stocks in each, and
+the app looks through every fund to the thousands of companies underneath: how much of each
+you own in dollars, as a share of your portfolio, and as an estimated share count (how many
+shares of Apple you hold through VTI, QQQ and your own position, combined).
 
-## How it works
+## Features
 
--   **Holdings** for each ETF come from etf.com, fetched by the small Python service in
-    `packages/etf-scraper` (see its README for why it is a separate process), refreshed daily
-    and cached in Redis for up to a month. Alpha Vantage's `ETF_PROFILE` is the fallback when
-    that service is not running; it only reports positions with a US-listed ticker, so
-    international funds come back badly incomplete (VXUS: 5% of the fund versus 94%).
--   **Prices** come from Finnhub and are cached in Redis. While the market is open a price is
-    refreshed after 30 minutes; after the close it is kept until the next open (NYSE holidays
-    included). Stale prices are served while a refresh is queued, never dropped.
--   **Exposure** to a security = Σ over ETFs of `shares × ETF price × weight` plus any direct
-    position. This only needs the prices of what you entered, so it is available within
-    seconds. **Share count** = exposure ÷ the security's own price, which fills in as quotes
-    arrive.
--   Finnhub's free tier allows 60 quotes a minute, so the queue is paced at ~54/min and only
-    the 300 largest positions by exposure are priced, largest first. Everything else still
-    shows exposure and percent, just no share count. Positions a fund reports under a foreign
-    exchange ticker (`2330` for TSMC) are never quoted, since Finnhub cannot resolve them.
--   The list page subscribes over Socket.IO and re-renders as prices land.
+-   **Accounts.** A portfolio is one or more accounts (Roth IRA, taxable, 401(k), HSA…), each
+    with its own holdings. Everything is combined by default; the account switcher narrows
+    the whole dashboard to one account or one account type.
+-   **Dashboard.** Value and today's change, fund fees, estimated income, a treemap of the
+    largest holdings, GICS sectors, regions and countries, company size and valuation, a
+    growth-of-$10k backtest of the current mix, fund overlap, and a searchable explorer of
+    every underlying holding.
+-   **Drill-down.** For any holding: which funds and which accounts it comes through, and how
+    its share count is worked out.
+-   **Scenarios.** What-if lists analysed the same way, comparable side by side with the main
+    portfolio.
 
-Whatever the holdings data does not account for is reported as its own "not covered" figure,
-broken down per fund — never folded into cash. Other limits: weights are published to two
-decimals, holdings are typically a few weeks old (each fund's as-of date is shown), and a
-leveraged fund reports what it physically holds (cash and swaps), not its multiplied index
-exposure.
+## Where the data comes from
+
+| Data                           | Source                                                                                 | Cached            |
+| ------------------------------ | -------------------------------------------------------------------------------------- | ----------------- |
+| ETF holdings and fund profiles | etf.com, through `packages/etf-scraper` (Alpha Vantage as a US-only fallback)          | refreshed daily   |
+| Prices                         | Finnhub                                                                                | 30 min while open |
+| GICS sectors                   | holdings of Vanguard's US and iShares' global sector funds, matched company by company | refreshed weekly  |
+| Which tickers are US listings  | the SEC's ticker list                                                                  | refreshed weekly  |
+| Ticker search                  | Nasdaq's daily directory of US listings                                                | refreshed daily   |
+
+Everything is cached in Redis. Exposure to a company is `shares × ETF price × weight`, summed
+over your funds plus any direct position, so it only needs the prices of what you entered.
+Share counts divide that by the company's own price; Finnhub's free tier allows 60 quotes a
+minute, so only the 300 largest positions are priced, largest first, and the page updates
+over Socket.IO as prices arrive.
+
+**Limits worth knowing.** Holdings are usually a few weeks old (each fund's date is shown).
+Companies listed only abroad (`2330` for TSMC) have exposure but no share count. Tickers
+repeat across exchanges, so holdings are matched by ticker and name, and only companies the
+SEC lists under that ticker are priced. GICS sectors cover nearly all US stocks but about two
+thirds of a broad international fund; the rest is shown as unclassified. Whatever a fund's
+data does not account for is reported as "not covered", never folded into cash.
 
 ## Packages
 
@@ -36,42 +48,36 @@ exposure.
 | ---------------------- | -------------------------------------------------------- |
 | `packages/backend`     | Express, TypeScript, Postgres (Kysely), Redis, Socket.IO |
 | `packages/frontend`    | SvelteKit 5, Tailwind                                    |
-| `packages/etf-scraper` | Python, FastAPI, curl_cffi — fetches ETF holdings        |
+| `packages/etf-scraper` | Python, FastAPI, curl_cffi (see its README for why)      |
 
-## Setup
+## Development
 
-Requirements: Node 20+, Yarn 1, Python 3.9+, Postgres, Redis, a
-[Finnhub](https://finnhub.io) API key and an [Alpha Vantage](https://www.alphavantage.co) API
-key (free tiers work).
+Requirements: Node 20+, Yarn 1, Python 3.9+, Postgres, Redis, and free
+[Finnhub](https://finnhub.io) and [Alpha Vantage](https://www.alphavantage.co) API keys.
 
 ```bash
 yarn install
 cd packages/backend && yarn install
 cd ../frontend && yarn install
-cd ../etf-scraper && python -m venv venv && venv/Scripts/activate && pip install -r requirements.txt
+cd ../etf-scraper && python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
 ```
 
-Copy `packages/backend/src/example.config.ts` to `packages/backend/src/config.ts` and fill
-in the keys, database and Redis connection, and the frontend origin (`http://localhost:5173`
-in development). Tables are created on first start.
+1. Copy `packages/backend/src/example.config.ts` to `config.ts` beside it and fill in the API
+   keys, Postgres, Redis, a JWT secret, and the frontend origin (`http://localhost:5173`).
+2. Set `VITE_API_URL` in `packages/frontend/.env` (`http://localhost:3100/api` for a backend on
+   port 3100).
 
-The frontend reads the API base URL from `packages/frontend/.env` (`VITE_API_URL`).
-
-## Running
+Tables are created, and migrations run, when the backend starts.
 
 ```bash
 yarn dev             # all three together
-yarn backend:dev     # backend only (builds with rollup, restarts on changes)
-yarn frontend:dev    # frontend only (Vite on :5173)
-yarn etf-scraper:dev # holdings service only (:3101)
+yarn backend:dev     # backend only, rebuilt and restarted on changes
+yarn frontend:dev    # frontend only, Vite on :5173
+yarn etf-scraper:dev # holdings service only, :3101 (activate its virtualenv first)
 ```
 
-`yarn etf-scraper:dev` runs `python app.py`, so activate that package's virtualenv first (or
-point `python` at it).
-
-Native modules in `packages/backend/node_modules` are built for the platform that ran
-`yarn install`, so run the backend on the same platform (e.g. inside WSL if that is where
-you installed and where Postgres/Redis live).
+Native modules are built for the platform that ran `yarn install`, so run the backend where
+you installed it (inside WSL, for example, if Postgres and Redis live there).
 
 ## Checks
 
