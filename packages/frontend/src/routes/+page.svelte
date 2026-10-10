@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
-	import Layers from "@lucide/svelte/icons/layers";
 	import Plus from "@lucide/svelte/icons/plus";
 	import { AuthDialog } from "$lib/components/auth";
+	import { LogoMark } from "$lib/components/logo";
 	import { Dashboard } from "$lib/components/dashboard";
 	import Button from "$lib/components/ui/button/button.svelte";
 	import { auth } from "$lib/stores/auth.svelte";
@@ -37,7 +37,7 @@
 		<span
 			class="inline-flex size-14 items-center justify-center rounded-2xl bg-indigo-700 text-white dark:bg-indigo-400 dark:text-zinc-950"
 		>
-			<Layers class="size-7" />
+			<LogoMark class="size-7" />
 		</span>
 		<div class="space-y-4">
 			<h1 class="text-4xl font-semibold tracking-tight sm:text-5xl">

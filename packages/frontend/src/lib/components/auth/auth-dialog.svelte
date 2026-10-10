@@ -22,7 +22,8 @@
 			description: string;
 			actionLabel: string;
 			successMessage: string;
-			helper: string;
+			/** Shown under the form until there is a message; none when the form says it all. */
+			helper: string | null;
 		}
 	>;
 
@@ -33,7 +34,7 @@
 			description: "Enter your credentials to continue.",
 			actionLabel: "Continue",
 			successMessage: "Login successful!",
-			helper: "Enter your email or username and password to log in."
+			helper: null
 		},
 		signup: {
 			triggerLabel: "Sign up",
@@ -316,9 +317,11 @@
 			</Button>
 		</form>
 
+		<!-- Always present, so screen readers announce messages; hidden while empty -->
 		<div
 			class={cn(
 				"rounded-md border px-3 py-2 text-sm",
+				!(feedback.message ?? copy[mode].helper) && "sr-only",
 				feedback.message
 					? feedback.isError
 						? "border-destructive/40 text-destructive"
