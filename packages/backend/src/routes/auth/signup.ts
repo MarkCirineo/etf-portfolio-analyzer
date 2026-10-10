@@ -20,6 +20,11 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 			throw new HttpError("Username is required", 400);
 		}
 
+		// Logging in tells a username from an email by the "@"
+		if (String(username).includes("@")) {
+			throw new HttpError('Username can\'t contain "@"', 400);
+		}
+
 		if (password.length < 8) {
 			throw new HttpError("Password must be at least 8 characters long", 400);
 		}

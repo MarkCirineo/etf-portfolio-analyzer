@@ -9,31 +9,34 @@ const router = Router();
 
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 	try {
+		// `login` is an email or a username; `email` is what older clients send
 		const { email, password } = req.body ?? {};
+		const login = String(req.body?.login ?? email ?? "").trim();
 
-		if (!email || !password) {
-			throw new HttpError("Email and password are required", 400);
+		if (!login || !password) {
+			throw new HttpError("Email or username and password are required", 400);
 		}
 
+		// Usernames can't contain "@", so the two never collide
 		const user = await db
 			.selectFrom("users")
 			.selectAll()
-			.where("email", "=", email)
+			.where(login.includes("@") ? "email" : "username", "=", login)
 			.executeTakeFirst();
 
 		if (!user) {
-			throw new HttpError("Invalid email or password", 401);
+			throw new HttpError("Invalid login or password", 401);
 		}
 
 		const isPasswordValid = await bcrypt.compare(password, user.password);
 		if (!isPasswordValid) {
-			throw new HttpError("Invalid email or password", 401);
+			throw new HttpError("Invalid login or password", 401);
 		}
 
 		const token = generateToken(user.id, user.email, user.role);
 		setAuthCookie(res, token);
 
-		logger.info(`[auth] User logged in: ${email}`);
+		logger.info(`[auth] User logged in: ${user.email}`);
 
 		res.status(200).json({
 			message: "Login successful",
