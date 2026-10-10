@@ -43,9 +43,13 @@ export const isUsListing = (
 	symbol: string,
 	name: string | null | undefined
 ): boolean => {
-	const registered = listings.get(symbol.replace(/\./g, "-"));
+	const registered = registeredName(listings, symbol);
 	return registered !== undefined && matchesRegisteredName(name, registered);
 };
+
+/** The company the SEC registers under a ticker, if any. */
+export const registeredName = (listings: Map<string, string>, symbol: string) =>
+	listings.get(symbol.replace(/\./g, "-"));
 
 const isDue = (snapshot: Snapshot) => Date.now() - snapshot.fetchedAt >= REFRESH_AFTER_MS;
 

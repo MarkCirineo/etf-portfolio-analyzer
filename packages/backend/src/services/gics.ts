@@ -75,8 +75,11 @@ type Snapshot = {
 };
 
 export type GicsClassifier = {
-	/** A security's sector by its key, else its ticker, else its name; null if unknown. */
-	sectorOf: (key: string, symbol: string) => GicsSector | null;
+	/**
+	 * A security's sector by its key, else its ticker (unless null), else its name; null
+	 * if unknown.
+	 */
+	sectorOf: (key: string, symbol: string | null) => GicsSector | null;
 };
 
 let memory: { snapshot: Snapshot; classifier: GicsClassifier } | null = null;
@@ -206,7 +209,7 @@ const remember = (snapshot: Snapshot) => {
 		classifier: {
 			sectorOf: (key, symbol) =>
 				snapshot.byKey[key] ??
-				snapshot.bySymbol[symbol] ??
+				(symbol === null ? undefined : snapshot.bySymbol[symbol]) ??
 				snapshot.byName[nameOf(key)] ??
 				null
 		}
