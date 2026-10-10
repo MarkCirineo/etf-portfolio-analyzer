@@ -1,8 +1,11 @@
 <script lang="ts">
+	import Eye from "@lucide/svelte/icons/eye";
+	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import Layers from "@lucide/svelte/icons/layers";
 	import { page } from "$app/state";
 	import { AccountMenu } from "$lib/components/account-menu";
 	import { activeView } from "$lib/stores/portfolio-view.svelte";
+	import { privacy, toggleHiddenAmounts } from "$lib/stores/privacy.svelte";
 	import { cn } from "$lib/utils";
 	import ScopeSwitcher from "./scope-switcher.svelte";
 
@@ -55,6 +58,20 @@
 			{#if view && showSwitcher}
 				<ScopeSwitcher {view} />
 			{/if}
+			<button
+				type="button"
+				class="inline-flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+				aria-label={privacy.hidden ? "Show amounts" : "Hide amounts"}
+				aria-pressed={privacy.hidden}
+				title={privacy.hidden ? "Show amounts" : "Hide amounts"}
+				onclick={toggleHiddenAmounts}
+			>
+				{#if privacy.hidden}
+					<EyeOff class="size-[18px]" />
+				{:else}
+					<Eye class="size-[18px]" />
+				{/if}
+			</button>
 			<AccountMenu />
 		</div>
 	</div>

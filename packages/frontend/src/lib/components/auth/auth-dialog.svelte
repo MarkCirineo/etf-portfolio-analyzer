@@ -4,6 +4,8 @@
 		type ButtonVariant
 	} from "$lib/components/ui/button/button.svelte";
 	import Input from "$lib/components/ui/input/input.svelte";
+	import Eye from "@lucide/svelte/icons/eye";
+	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import * as Dialog from "$lib/components/ui/dialog/index.js";
 	import { request } from "$lib/request";
 	import { cn } from "$lib/utils.js";
@@ -31,7 +33,7 @@
 			description: "Enter your credentials to continue.",
 			actionLabel: "Continue",
 			successMessage: "Login successful!",
-			helper: "Enter your email and password to log in."
+			helper: "Enter your email or username and password to log in."
 		},
 		signup: {
 			triggerLabel: "Sign up",
@@ -100,18 +102,29 @@
 		return true;
 	};
 
-	// Proactively surface email errors in the feedback panel while typing
+	// Logging in tells a username from an email by the "@"
+	const isUsernameValid = (username: string | undefined) => !username?.includes("@");
+
+	const EMAIL_ERROR = "Please enter a valid email address.";
+	const USERNAME_ERROR = 'Usernames can\'t contain "@".';
+
+	// Proactively surface email and username errors in the feedback panel while typing
 	$effect(() => {
 		if (isSubmitting) return;
 
 		// Only show the email error after the user has entered something
 		if (form.email && !isEmailValid(form.email)) {
-			feedback = { message: "Please enter a valid email address.", isError: true };
+			feedback = { message: EMAIL_ERROR, isError: true };
 			return;
 		}
 
-		// Clear our specific email error when it becomes valid or empty
-		if (feedback.message === "Please enter a valid email address.") {
+		if (!isUsernameValid(form.username)) {
+			feedback = { message: USERNAME_ERROR, isError: true };
+			return;
+		}
+
+		// Clear our own errors once they're fixed
+		if (feedback.message === EMAIL_ERROR || feedback.message === USERNAME_ERROR) {
 			feedback = { message: null, isError: false };
 		}
 	});
@@ -119,6 +132,7 @@
 	let isSubmitDisabled = $derived(
 		!form.email ||
 			!isEmailValid(form.email) ||
+			!isUsernameValid(form.username) ||
 			!form.password ||
 			(mode === "signup" && !form.username) ||
 			isSubmitting
@@ -132,20 +146,17 @@
 
 		// Client-side email validation with custom feedback
 		if (!isEmailValid(form.email)) {
-			feedback = { message: "Please enter a valid email address.", isError: true };
+			feedback = { message: EMAIL_ERROR, isError: true };
 			isSubmitting = false;
 			return;
 		}
 
 		try {
-			const requestBody: { email: string; password: string; username?: string } = {
-				email: form.email,
-				password: form.password
-			};
-
-			if (mode === "signup" && form.username) {
-				requestBody.username = form.username;
-			}
+			// Logging in, the email field takes an email or a username
+			const requestBody =
+				mode === "signup"
+					? { email: form.email, password: form.password, username: form.username }
+					: { login: form.email, password: form.password };
 
 			const response = await request(`/auth/${mode}`, {
 				method: "POST",
@@ -193,8 +204,11 @@
 		}
 	};
 
+	let showPassword = $state(false);
+
 	const resetState = () => {
 		form = buildInitialForm();
+		showPassword = false;
 		feedback = { message: null, isError: false };
 		isSubmitting = false;
 	};
@@ -254,11 +268,16 @@
 				</div>
 			{/if}
 			<div class="space-y-2">
-				<label class="text-sm font-medium text-foreground" for={emailId}>Email</label>
+				<label class="text-sm font-medium text-foreground" for={emailId}
+					>{mode === "signup" ? "Email" : "Email or username"}</label
+				>
 				<Input
 					id={emailId}
-					type="email"
+					type={mode === "signup" ? "email" : "text"}
 					placeholder="you@example.com"
+					autocomplete={mode === "signup" ? "email" : "username"}
+					autocapitalize="none"
+					spellcheck={false}
 					bind:value={form.email}
 					required
 					oninvalid={(e) => e.preventDefault()}
@@ -266,13 +285,30 @@
 			</div>
 			<div class="space-y-2">
 				<label class="text-sm font-medium text-foreground" for={passwordId}>Password</label>
-				<Input
-					id={passwordId}
-					type="password"
-					placeholder="••••••••"
-					bind:value={form.password}
-					required
-				/>
+				<div class="relative">
+					<Input
+						id={passwordId}
+						type={showPassword ? "text" : "password"}
+						placeholder="••••••••"
+						autocomplete={mode === "signup" ? "new-password" : "current-password"}
+						class="pr-10"
+						bind:value={form.password}
+						required
+					/>
+					<button
+						type="button"
+						class="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						aria-label={showPassword ? "Hide password" : "Show password"}
+						aria-pressed={showPassword}
+						onclick={() => (showPassword = !showPassword)}
+					>
+						{#if showPassword}
+							<EyeOff class="size-4" />
+						{:else}
+							<Eye class="size-4" />
+						{/if}
+					</button>
+				</div>
 			</div>
 
 			<Button type="submit" class="w-full" disabled={isSubmitDisabled}>

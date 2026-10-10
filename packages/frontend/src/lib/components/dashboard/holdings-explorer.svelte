@@ -3,9 +3,9 @@
 	import { mainSource } from "$lib/dashboard";
 	import {
 		formatCount,
-		formatCurrency,
 		formatMoney,
 		formatPercent,
+		formatPrice,
 		formatShares
 	} from "$lib/format";
 	import type { AnalyzedHolding, ListAnalysis, PriceStatus } from "$lib/types";
@@ -230,7 +230,7 @@
 						<td
 							class="border-b px-3 py-2.5 text-right font-mono tabular-nums text-muted-foreground"
 						>
-							{formatCurrency(holding.price)}
+							{formatPrice(holding.price)}
 							{#if priceNote(holding.priceStatus)}
 								<div class="font-sans text-[11px]">
 									{priceNote(holding.priceStatus)}

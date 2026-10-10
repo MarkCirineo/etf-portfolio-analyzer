@@ -1,8 +1,21 @@
+import { privacy } from "$lib/stores/privacy.svelte";
+
 const isNumber = (value: number | null | undefined): value is number =>
 	typeof value === "number" && !Number.isNaN(value);
 
-/** $1,234 — whole dollars, for amounts large enough that cents are noise. */
-export const formatMoney = (value: number | null | undefined) =>
+export const HIDDEN = "••••";
+
+/**
+ * The user's own amounts (values, share counts, fees and income in dollars) go through
+ * this, so hiding amounts covers them all. Prices and other market data don't.
+ */
+const personal =
+	<Args extends unknown[]>(format: (...args: Args) => string) =>
+	(...args: Args) =>
+		privacy.hidden ? HIDDEN : format(...args);
+
+/** $1,234 — whole dollars, not the user's own (the growth-of-$10k chart). */
+export const formatDollars = (value: number | null | undefined) =>
 	isNumber(value)
 		? value.toLocaleString("en-US", {
 				style: "currency",
@@ -11,9 +24,15 @@ export const formatMoney = (value: number | null | undefined) =>
 			})
 		: "—";
 
-/** $1,234.56 */
-export const formatCurrency = (value: number | null | undefined) =>
+/** $1,234.56 — a price per share, shown even while amounts are hidden. */
+export const formatPrice = (value: number | null | undefined) =>
 	isNumber(value) ? value.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "—";
+
+/** $1,234 — whole dollars, for amounts large enough that cents are noise. */
+export const formatMoney = personal(formatDollars);
+
+/** $1,234.56 */
+export const formatCurrency = personal(formatPrice);
 
 /** $612B, $4.3M */
 export const formatCompactMoney = (value: number | null | undefined) =>
@@ -27,8 +46,9 @@ export const formatCompactMoney = (value: number | null | undefined) =>
 		: "—";
 
 /** +$612.40 / −$12.00 */
-export const formatSignedCurrency = (value: number | null | undefined) =>
-	isNumber(value) ? `${value >= 0 ? "+" : "−"}${formatCurrency(Math.abs(value))}` : "—";
+export const formatSignedCurrency = personal((value: number | null | undefined) =>
+	isNumber(value) ? `${value >= 0 ? "+" : "−"}${formatPrice(Math.abs(value))}` : "—"
+);
 
 export const formatPercent = (value: number | null | undefined, digits = 2) =>
 	isNumber(value) ? `${value.toFixed(digits)}%` : "—";
@@ -36,8 +56,10 @@ export const formatPercent = (value: number | null | undefined, digits = 2) =>
 export const formatSignedPercent = (value: number | null | undefined, digits = 2) =>
 	isNumber(value) ? `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(digits)}%` : "—";
 
-export const formatShares = (value: number | null | undefined, maximumFractionDigits = 2) =>
-	isNumber(value) ? value.toLocaleString("en-US", { maximumFractionDigits }) : "—";
+export const formatShares = personal(
+	(value: number | null | undefined, maximumFractionDigits: number = 2) =>
+		isNumber(value) ? value.toLocaleString("en-US", { maximumFractionDigits }) : "—"
+);
 
 export const formatCount = (value: number) => value.toLocaleString("en-US");
 

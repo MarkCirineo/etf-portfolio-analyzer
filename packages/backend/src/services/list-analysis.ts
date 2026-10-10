@@ -8,7 +8,7 @@ import {
 	type BreakdownSet,
 	type PortfolioBreakdown
 } from "@services/portfolio-breakdown";
-import { getUsListings, isUsListing } from "@services/us-listings";
+import { getUsListings, isUsListing, registeredName } from "@services/us-listings";
 import { getMarketSession } from "@utils/market-hours";
 import { getQuoteSnapshots, type PriceStatus, type QuoteSnapshot } from "@utils/quotes";
 
@@ -141,6 +141,8 @@ type ExposureEntry = {
 	inUsFund: boolean;
 	/** Can be priced as a US listing; decided once every input is spread. */
 	usListed: boolean;
+	/** A direct holding whose ticker a different, fund-held company also uses. */
+	sharesTicker: boolean;
 	directShares: number;
 	directExposure: number;
 	viaExposure: number;
@@ -356,7 +358,7 @@ export const analyzeList = async (content: ListContent): Promise<ListAnalysisRes
 			id: aggregate.key,
 			symbol: aggregate.symbol,
 			name: aggregate.name,
-			sector: gics?.sectorOf(aggregate.key, aggregate.symbol) ?? null,
+			sector: gics ? sectorOf(gics, aggregate) : null,
 			usListed: aggregate.usListed,
 			exposure: round(exposure, 2),
 			percentOfPortfolio: totalValue > 0 ? round((exposure / totalValue) * 100, 4) : 0,
@@ -524,7 +526,10 @@ const canPriceAsUsListing = (
 
 /**
  * The security a directly held ticker refers to: the fund-held one the SEC confirms as
- * that ticker's US listing, else the only one there is, else a row of its own.
+ * that ticker's US listing, else the only one there is, else a row of its own. The only
+ * one is skipped when the SEC registers the ticker to another company and no US fund
+ * holds it: Fundrise's VCX is not Vicinity Centres, which international funds report as
+ * VCX.
  */
 const findListing = (
 	map: Map<string, ExposureEntry>,
@@ -540,11 +545,18 @@ const findListing = (
 		return confirmed;
 	}
 
-	if (candidates.length === 1) {
+	const registered = listings ? registeredName(listings, symbol) : undefined;
+
+	// A US fund's holding is the US listing even when the SEC's name lags a rename
+	if (candidates.length === 1 && (registered === undefined || candidates[0].inUsFund)) {
 		return candidates[0];
 	}
 
-	return getOrCreateExposure(map, `${symbol}|direct`, symbol);
+	const own = getOrCreateExposure(map, `${symbol}|direct`, symbol);
+	own.name ??= registered ?? null;
+	// Its ticker belongs to another company in the funds, so it can't be looked up by ticker
+	own.sharesTicker = candidates.length > 0;
+	return own;
 };
 
 const getOrCreateExposure = (map: Map<string, ExposureEntry>, key: string, symbol: string) => {
@@ -558,6 +570,7 @@ const getOrCreateExposure = (map: Map<string, ExposureEntry>, key: string, symbo
 			usStyleTicker: false,
 			inUsFund: false,
 			usListed: false,
+			sharesTicker: false,
 			directShares: 0,
 			directExposure: 0,
 			viaExposure: 0,
@@ -569,6 +582,9 @@ const getOrCreateExposure = (map: Map<string, ExposureEntry>, key: string, symbo
 	return entry;
 };
 
+const sectorOf = (gics: GicsClassifier, aggregate: ExposureEntry) =>
+	gics.sectorOf(aggregate.key, aggregate.sharesTicker ? null : aggregate.symbol);
+
 /** Every company's exposure, summed by GICS sector; the rest is unclassified. */
 const classifySectors = (
 	exposures: Map<string, ExposureEntry>,
@@ -578,7 +594,7 @@ const classifySectors = (
 	const bySector = new Map<string, number>();
 
 	for (const aggregate of exposures.values()) {
-		const sector = gics.sectorOf(aggregate.key, aggregate.symbol);
+		const sector = sectorOf(gics, aggregate);
 
 		if (sector) {
 			bySector.set(sector, (bySector.get(sector) ?? 0) + totalExposure(aggregate));
