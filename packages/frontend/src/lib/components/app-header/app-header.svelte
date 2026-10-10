@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Eye from "@lucide/svelte/icons/eye";
 	import EyeOff from "@lucide/svelte/icons/eye-off";
-	import Layers from "@lucide/svelte/icons/layers";
 	import { page } from "$app/state";
 	import { AccountMenu } from "$lib/components/account-menu";
+	import { LogoMark } from "$lib/components/logo";
 	import { activeView } from "$lib/stores/portfolio-view.svelte";
 	import { privacy, toggleHiddenAmounts } from "$lib/stores/privacy.svelte";
 	import { cn } from "$lib/utils";
@@ -31,7 +31,7 @@
 			<span
 				class="inline-flex size-8 items-center justify-center rounded-lg bg-indigo-700 text-white dark:bg-indigo-400 dark:text-zinc-950"
 			>
-				<Layers class="size-[18px]" />
+				<LogoMark class="size-[18px]" />
 			</span>
 			<span class="hidden sm:inline">ETF Portfolio Analyzer</span>
 		</a>
