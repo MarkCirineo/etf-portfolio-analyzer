@@ -2,8 +2,9 @@
 	import { toast } from "svelte-sonner";
 	import X from "@lucide/svelte/icons/x";
 	import Button from "$lib/components/ui/button/button.svelte";
-	import { formatCurrency, formatMoney } from "$lib/format";
+	import { formatMoney, formatPrice } from "$lib/format";
 	import { parseShares, rowValue, type HoldingRow } from "$lib/holdings";
+	import { privacy } from "$lib/stores/privacy.svelte";
 	import SymbolSearch from "./symbol-search.svelte";
 
 	let {
@@ -113,15 +114,14 @@
 									aria-label="{row.symbol} shares"
 									aria-invalid={parseShares(row.shares) === null}
 									bind:value={row.shares}
+									class:hidden-amount={privacy.hidden}
 									class="min-h-10 w-full rounded-lg border bg-background px-2.5 font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-ring aria-[invalid=true]:border-red-600"
 								/>
 							</td>
 							<td
 								class="border-b px-3 py-2 text-right font-mono tabular-nums text-muted-foreground"
 							>
-								{prices.has(row.symbol)
-									? formatCurrency(prices.get(row.symbol))
-									: "—"}
+								{prices.has(row.symbol) ? formatPrice(prices.get(row.symbol)) : "—"}
 							</td>
 							<td
 								class="border-b px-3 py-2 text-right font-mono font-semibold tabular-nums"
@@ -173,3 +173,11 @@
 	</div>
 	<Button type="submit" variant="outline" class="min-h-11 bg-card px-5">Add</Button>
 </form>
+
+<style>
+	/* Blurs the digits, not the box; clicking in shows them for editing */
+	.hidden-amount:not(:focus) {
+		color: transparent;
+		text-shadow: 0 0 8px hsl(var(--foreground));
+	}
+</style>

@@ -8,7 +8,7 @@
 		colorAt
 	} from "$lib/accounts";
 	import { directExposure, exposureByAccount, mainSource } from "$lib/dashboard";
-	import { formatCurrency, formatMoney, formatPercent, formatShares } from "$lib/format";
+	import { formatMoney, formatPercent, formatPrice, formatShares } from "$lib/format";
 	import type { AccountSummary, AnalyzedHolding, ListAnalysis } from "$lib/types";
 	import { cn } from "$lib/utils";
 
@@ -184,7 +184,7 @@
 						<div class="rounded-xl border px-4 py-3.5">
 							<dt class="text-xs text-muted-foreground">Price</dt>
 							<dd class="mt-1 font-mono text-xl font-semibold tabular-nums">
-								{formatCurrency(holding.price)}
+								{formatPrice(holding.price)}
 							</dd>
 						</div>
 					</dl>
@@ -344,7 +344,7 @@
 								{/if}
 							{/each}
 							{#if holding.price && holding.totalShares !== null}
-								{formatMoney(holding.exposure)} ÷ {formatCurrency(holding.price)} = {formatShares(
+								{formatMoney(holding.exposure)} ÷ {formatPrice(holding.price)} = {formatShares(
 									holding.totalShares
 								)} shares
 							{:else}

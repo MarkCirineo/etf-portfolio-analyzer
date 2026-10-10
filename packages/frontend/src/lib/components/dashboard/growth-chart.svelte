@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { formatMoney, formatMonth, formatPercent } from "$lib/format";
+	import { formatDollars, formatMonth, formatPercent } from "$lib/format";
 	import type { PortfolioBreakdown } from "$lib/types";
 
 	let { backtest }: { backtest: NonNullable<PortfolioBreakdown["backtest"]> } = $props();
@@ -99,7 +99,7 @@
 		</div>
 		<div class="ml-auto text-right">
 			<div class="font-mono text-xl font-semibold tabular-nums">
-				{formatMoney(last?.value)}
+				{formatDollars(last?.value)}
 			</div>
 			<div class="font-mono text-[13px] tabular-nums text-muted-foreground">
 				{totalReturn >= 0 ? "+" : ""}{formatPercent(
@@ -124,7 +124,7 @@
 		<svg
 			viewBox="0 0 {WIDTH} {HEIGHT}"
 			role="img"
-			aria-label={`Line chart: $10,000 grows to ${formatMoney(last?.value)} between ${formatMonth(backtest.start)} and ${formatMonth(backtest.end)}`}
+			aria-label={`Line chart: $10,000 grows to ${formatDollars(last?.value)} between ${formatMonth(backtest.start)} and ${formatMonth(backtest.end)}`}
 			class="block h-auto w-full"
 		>
 			<g class="stroke-border" stroke-width="1">
@@ -188,7 +188,7 @@
 			>
 				<div class="text-muted-foreground">{formatMonth(hovered.month)}</div>
 				<div class="font-mono text-sm font-semibold tabular-nums">
-					{formatMoney(hovered.value)}
+					{formatDollars(hovered.value)}
 				</div>
 				<div class="font-mono tabular-nums text-muted-foreground">
 					{tooltip.change >= 0 ? "+" : ""}{formatPercent(tooltip.change, 0)} since start
